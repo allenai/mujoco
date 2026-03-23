@@ -89,6 +89,8 @@ echo "Copy plugins to install directory"
 mkdir -p install/mujoco_plugin
 cp ${ROOT_DIR}/build/lib/libactuator.* ${ROOT_DIR}/install/mujoco_plugin
 cp ${ROOT_DIR}/build/lib/libelasticity.* ${ROOT_DIR}/install/mujoco_plugin
+cp ${ROOT_DIR}/build/lib/libobj_decoder.* ${ROOT_DIR}/install/mujoco_plugin
+cp ${ROOT_DIR}/build/lib/libstl_decoder.* ${ROOT_DIR}/install/mujoco_plugin
 cp ${ROOT_DIR}/build/lib/libsensor.* ${ROOT_DIR}/install/mujoco_plugin
 cp ${ROOT_DIR}/build/lib/libsdf_plugin.* ${ROOT_DIR}/install/mujoco_plugin
 

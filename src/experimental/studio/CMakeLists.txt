@@ -55,6 +55,8 @@ target_link_libraries(${MUJOCO_STUDIO_TARGET_NAME}
         implot
         mujoco::mujoco
         mujoco::platform
+        stl_decoder
+        obj_decoder
 )
 
 # TODO: re-enable mjz support on Windows builds once DllMain issue is resolved.

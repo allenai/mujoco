@@ -92,6 +92,6 @@ set(TESTS_AI2_LIST
 )
 
 foreach(ex_filepath IN LISTS TESTS_AI2_LIST)
-  wp_setup_single_file_example(${ex_filepath} TARGET_DEPENDENCIES mujoco::mujoco CLI11::CLI11)
+  wp_setup_single_file_example(${ex_filepath} TARGET_DEPENDENCIES mujoco::mujoco mujoco::filament stl_decoder obj_decoder CLI11::CLI11)
 endforeach()
 
