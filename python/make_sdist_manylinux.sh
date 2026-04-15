@@ -72,7 +72,7 @@ cp "${package_dir}"/../cmake/*.cmake mujoco/cmake
 cp -r "${package_dir}"/../simulate mujoco
 
 ${py_bin} -m build . --sdist
-tar -tf dist/mujoco_filament-*.tar.gz
+tar -tf dist/mujoco-*.tar.gz
 popd
 
 mkdir -p "${package_dir}"/dist

@@ -118,6 +118,6 @@ if [[ "${build_filament}" == "ON" ]]; then
     MUJOCO_FILAMENT_ASSETS="${ROOT_DIR}/install/filament/assets"
 fi
 
-MUJOCO_CMAKE_ARGS="${MUJOCO_CMAKE_ARGS}" MUJOCO_FILAMENT_ASSETS="${MUJOCO_FILAMENT_ASSETS}" ${py_bin} -m pip wheel --use-pep517 -vvv ${ROOT_DIR}/python/dist/mujoco_filament-*.tar.gz --wheel-dir ${ROOT_DIR}/python/dist
+MUJOCO_CMAKE_ARGS="${MUJOCO_CMAKE_ARGS}" MUJOCO_FILAMENT_ASSETS="${MUJOCO_FILAMENT_ASSETS}" ${py_bin} -m pip wheel --use-pep517 -vvv ${ROOT_DIR}/python/dist/mujoco-*.tar.gz --wheel-dir ${ROOT_DIR}/python/dist
 
-auditwheel repair --wheel-dir ${ROOT_DIR}/python/dist ${ROOT_DIR}/python/dist/mujoco_filament-*.whl
+auditwheel repair --wheel-dir ${ROOT_DIR}/python/dist ${ROOT_DIR}/python/dist/mujoco-*.whl
