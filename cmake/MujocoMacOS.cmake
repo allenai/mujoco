@@ -23,7 +23,7 @@ if(APPLE)
   # CMAKE_OSX_DEPLOYMENT_TARGET variable since we do not want to affect choice of SDK,
   # and also we only want to apply the version restriction locally.
   set(MUJOCO_MACOS_COMPILE_OPTIONS -mmacosx-version-min=${MUJOCO_MACOSX_VERSION_MIN}
-                                   -Werror=partial-availability -Werror=unguarded-availability
+                                   -Werror=partial-availability -Werror=unguarded-availability -Wno-deprecated-declarations
   )
   set(MUJOCO_MACOS_LINK_OPTIONS -mmacosx-version-min=${MUJOCO_MACOSX_VERSION_MIN}
                                 -Wl,-no_weak_imports

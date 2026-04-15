@@ -42,3 +42,10 @@ MUJOCO_LOG.TXT
 wasm/**/dist/
 **/node_modules/
 
+/install
+/filament
+compile_commands.json
+/*.png
+
+/assets
+

@@ -229,7 +229,7 @@ void FilamentContext::ReadPixels(mjrRect viewport, unsigned char* rgb,
       request.target = color_target_.get();
       request.camera = last_camera_;
       request.enable_ux = (gui_swap_chain_target_ == kOffscreenSwapChain);
-      request.gui_scale = imgui_bridge_ ? imgui_bridge_->GetScale() : 1.0f;
+      request.gui_scale = (request.enable_ux && imgui_bridge_) ? imgui_bridge_->GetScale() : 1.0f;
       scene_view_->Render(renderer_, request);
 
       const size_t num_bytes = viewport.width * viewport.height * 3;

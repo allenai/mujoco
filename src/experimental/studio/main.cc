@@ -103,9 +103,13 @@ int main(int argc, char** argv, char** envp) {
 
   std::string gfx = absl::GetFlag(FLAGS_gfx);
 
+  auto eMode = mujoco::platform::GraphicsMode::FilamentOpenGl;
+#ifdef __linux__
+    eMode = mujoco::platform::GraphicsMode::FilamentVulkan;
+#endif
   mujoco::platform::GraphicsMode gfx_mode =
       mujoco::platform::GraphicsModeFromString(
-          gfx, mujoco::platform::GraphicsMode::FilamentOpenGl);
+          gfx, eMode);
 
   const int width = absl::GetFlag(FLAGS_window_width);
   const int height = absl::GetFlag(FLAGS_window_height);

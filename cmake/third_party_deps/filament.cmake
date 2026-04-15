@@ -13,7 +13,7 @@
 # limitations under the License.
 
 set(MUJOCO_DEP_VERSION_filament
-    a4945939de514d049baeed654efbbdd06bc5bdbf
+    bcaf0e1d1619c9ac0cd53af67695473e841d7e65
     CACHE STRING "Tag/version of `filament` to be fetched."
 )
 mark_as_advanced(MUJOCO_DEP_VERSION_filament)
@@ -34,7 +34,7 @@ endif()
 
 fetchpackage(
     PACKAGE_NAME  filament
-    GIT_REPO      https://github.com/google/filament.git
+    GIT_REPO      https://github.com/wpumacay/filament.git
     GIT_TAG       ${MUJOCO_DEP_VERSION_filament}
 )
 

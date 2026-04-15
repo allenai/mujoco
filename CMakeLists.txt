@@ -47,6 +47,9 @@ if(NOT EMSCRIPTEN)
   option(MUJOCO_TEST_PYTHON_UTIL "Build and test utility libraries for Python bindings" ON)
   option(MUJOCO_WITH_USD "Build with OpenUSD" OFF)
   option(MUJOCO_USE_FILAMENT "Use filament rendering" OFF)
+  option(MUJOCO_USE_FILAMENT_VULKAN "Use vulkan backend for filament rendering" OFF)
+  option(MUJOCO_USE_DEFAULT_LD "Use ld for linking, seems ld.gold and others don't work well in some systems" ON)
+  option(MUJOCO_TEST_AI2 "Build the custom tests we made during dev at ai2" ON)
   # Allows filament renderer to be used with mjr API; disables src/render to prevent conflicts.
   option(MUJOCO_USE_FILAMENT_MJR_COMPAT "Use filament mjr compatibility layer" OFF)
 endif()
@@ -166,6 +169,48 @@ target_link_libraries(
           tinyxml2
 )
 
+
+# Link Filament renderer and all its dependencies into libmujoco.so
+if(MUJOCO_USE_FILAMENT AND NOT EMSCRIPTEN)
+  # Ensure mujoco_filament is built first
+  add_dependencies(mujoco mujoco_filament)
+  if (APPLE)
+    # Use whole-archive with the library file path to avoid recompilation
+    target_link_libraries(mujoco PRIVATE
+      "-Wl,-force_load,${CMAKE_BINARY_DIR}/lib/libmujoco_filament.a"
+      filament
+      backend
+      bluegl
+      filaflat
+      filabridge
+      ktxreader
+      image
+      utils
+      smol-v
+      zstd
+    )
+  else()
+    # Use whole-archive with the library file path to avoid recompilation
+    target_link_libraries(mujoco PRIVATE
+      -Wl,--whole-archive
+      ${CMAKE_BINARY_DIR}/lib/libmujoco_filament.a
+      -Wl,--no-whole-archive
+      filament
+      backend
+      bluevk
+      bluegl
+      filaflat
+      filabridge
+      ktxreader
+      image
+      utils
+      smol-v
+      zstd
+    )
+  endif()
+
+endif()
+
 set_target_properties(
   mujoco PROPERTIES VERSION "${mujoco_VERSION}" PUBLIC_HEADER "${MUJOCO_HEADERS}"
 )
@@ -228,6 +273,10 @@ endif()
 
 if(MUJOCO_BUILD_EXAMPLES)
   add_subdirectory(sample)
+endif()
+
+if (MUJOCO_TEST_AI2)
+  add_subdirectory(test/ai2)
 endif()
 
 if(MUJOCO_WITH_USD)

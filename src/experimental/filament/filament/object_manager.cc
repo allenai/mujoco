@@ -16,6 +16,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <stdexcept>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -31,6 +34,53 @@
 #include "experimental/filament/filament/texture.h"
 #include "user/user_resource.h"
 
+#ifdef __linux__
+#include <dlfcn.h>
+#include <link.h>
+#endif
+#ifdef __APPLE__
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#endif
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+namespace fs = std::filesystem;
+
+// To find the mujoco library and assets when running in python bindings/
+// find assets relative to the installed package.
+static fs::path GetLibraryDirectory() {
+#ifdef __linux__
+  Dl_info info;
+  if (dladdr(reinterpret_cast<void*>(GetLibraryDirectory), &info) != 0) {
+    fs::path lib_path(info.dli_fname);
+    return lib_path.parent_path();
+  }
+#elif defined(__APPLE__)
+  Dl_info info;
+  if (dladdr(reinterpret_cast<void*>(GetLibraryDirectory), &info) != 0) {
+    fs::path lib_path(info.dli_fname);
+    return lib_path.parent_path();
+  }
+#elif defined(_WIN32)
+  HMODULE hModule = nullptr;
+  if (GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCSTR>(&GetLibraryDirectory), &hModule)) {
+    char path[MAX_PATH];
+    if (GetModuleFileNameA(hModule, path, MAX_PATH) != 0) {
+      fs::path lib_path(path);
+      return lib_path.parent_path();
+    }
+  }
+#endif
+  return fs::path();
+}
+
+
+
 namespace mujoco {
 namespace {
 
@@ -39,7 +89,33 @@ struct Asset {
   explicit Asset(std::string_view filename) {
     std::string path = "filament:" + std::string(filename);
 
-    resource = mju_openResource("", path.c_str(), nullptr, nullptr, 0);
+    std::array<char, 1000> error;
+
+    auto envvar_install_dir = std::getenv("MUJOCO_INSTALL_DIR");
+    if (!envvar_install_dir) {
+      auto lib_dir = GetLibraryDirectory();
+      // std::cout << "Library dir: " << lib_dir.c_str() << std::endl;
+      auto assets_dir = lib_dir / "filament" / "assets" / "data";
+      // std::cout << "Assets dir: " << assets_dir.c_str() << std::endl;
+      if (fs::is_directory(assets_dir)) {
+        // std::cout << "Var assets_dir is a valid directory" << std::endl;
+        std::string str_assets_dir = assets_dir.string() + "/";
+        resource = mju_openResource(str_assets_dir.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
+      }
+      else {
+        // std::cout << "Falling back to default dir for filament assets" << std::endl;
+        resource = mju_openResource("", path.c_str(), nullptr, error.data(), error.size());
+      }
+    }
+    else {
+      std::string dir_path = std::string(envvar_install_dir) + "filament/assets/";
+      resource = mju_openResource(dir_path.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
+    }
+
+    if (!resource) {
+      mju_error("Error while opening resource > %s", error.data());
+      throw std::runtime_error("Got an error while loading a file when loading filament materials.");
+    }
     size = mju_readResource(resource, const_cast<const void**>(&payload));
   }
 

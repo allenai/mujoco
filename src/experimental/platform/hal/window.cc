@@ -15,8 +15,11 @@
 #include "experimental/platform/hal/window.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -70,16 +73,44 @@ static void InitImGui(SDL_Window* window, float content_scale, bool load_fonts,
 
     ImFontConfig main_cfg;
     main_cfg.FontDataOwnedByAtlas = false;
-    font =
-        mju_openResource("", "font:OpenSans-Regular.ttf", nullptr, nullptr, 0);
+
+    std::array<char, 1000> error;
+    auto envvar_install_dir = std::getenv("MUJOCO_INSTALL_DIR");
+    if (!envvar_install_dir) {
+      font = mju_openResource("", "font:OpenSans-Regular.ttf", nullptr, error.data(), error.size());
+    }
+    else {
+      std::string dir_path = std::string(envvar_install_dir) + "filament/assets/";
+      font = mju_openResource(dir_path.c_str(), "OpenSans-Regular.ttf", nullptr, error.data(), error.size());
+    }
+
+    if (!font) {
+      mju_error("Error while opening resource > %s", error.data());
+      throw std::runtime_error("Got an error while loading a font for the studio app");
+    }
+
+    error.fill(0);
+
     size = mju_readResource(font, const_cast<const void**>(&data));
     io.Fonts->AddFontFromMemoryTTF(data, size, 20.f, &main_cfg);
 
     ImFontConfig icon_cfg;
     icon_cfg.FontDataOwnedByAtlas = false;
     icon_cfg.MergeMode = true;
-    font = mju_openResource("", "font:fontawesome-webfont.ttf", nullptr,
-                            nullptr, 0);
+
+    if (!envvar_install_dir) {
+      font = mju_openResource("", "font:fontawesome-webfont.ttf", nullptr, error.data(), error.size());
+    }
+    else {
+      std::string dir_path = std::string(envvar_install_dir) + "filament/assets/";
+      font = mju_openResource(dir_path.c_str(), "fontawesome-webfont.ttf", nullptr, error.data(), error.size());
+    }
+
+    if (!font) {
+      mju_error("Error while opening resource > %s", error.data());
+      throw std::runtime_error("Got an error while loading a font for the studio app");
+    }
+
     size = mju_readResource(font, const_cast<const void**>(&data));
     constexpr ImWchar icon_ranges[] = {0xf000, 0xf3ff, 0x000};
     io.Fonts->AddFontFromMemoryTTF(data, size, 14.f, &icon_cfg, icon_ranges);

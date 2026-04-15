@@ -34,6 +34,7 @@ MUJOCO_CMAKE = 'MUJOCO_CMAKE'
 MUJOCO_CMAKE_ARGS = 'MUJOCO_CMAKE_ARGS'
 MUJOCO_PATH = 'MUJOCO_PATH'
 MUJOCO_PLUGIN_PATH = 'MUJOCO_PLUGIN_PATH'
+MUJOCO_FILAMENT_ASSETS = 'MUJOCO_FILAMENT_ASSETS'
 
 EXT_PREFIX = 'mujoco.'
 
@@ -160,6 +161,7 @@ class BuildCMakeExtension(build_ext.build_ext):
     self._copy_external_libraries()
     self._copy_mujoco_headers()
     self._copy_plugin_libraries()
+    self._copy_filament_assets()
     if self._is_apple:
       self._copy_mjpython()
 
@@ -210,6 +212,40 @@ class BuildCMakeExtension(build_ext.build_ext):
           shutil.copyfile(
               os.path.join(directory, filename), os.path.join(dst, filename)
           )
+
+  # TODO(wilbert): check that we're not copying twice, it seems there's two copies
+  def _copy_filament_assets(self):
+    """Copy Filament assets to the package installation directory."""
+    # Assets are in build/bin/assets/ and build/src/experimental/filament/assets/
+    # We'll copy them to filament/assets/data/ relative to the extension directory
+    ext_dir = os.path.dirname(self.get_ext_fullpath(self.extensions[0].name))
+    assets_dst = os.path.join(ext_dir, 'filament', 'assets', 'data')
+    os.makedirs(assets_dst, exist_ok=True)
+
+    # Copy assets from build/bin/assets/
+    build_bin_assets = os.path.join(os.environ.get(MUJOCO_PATH, "."), 'filament', 'assets')
+    if not os.path.exists(build_bin_assets):
+      if MUJOCO_FILAMENT_ASSETS in os.environ:
+        build_bin_assets = os.environ[MUJOCO_FILAMENT_ASSETS]
+
+    if not os.path.exists(build_bin_assets):
+      return
+
+    for filename in os.listdir(build_bin_assets):
+      src = os.path.join(build_bin_assets, filename)
+      if os.path.isfile(src):
+        dst = os.path.join(assets_dst, filename)
+        shutil.copyfile(src, dst)
+        logging.info('Copied asset: %s -> %s', src, dst)
+
+    # # Also copy ibl.ktx from build/src/experimental/filament/assets/ if it exists
+    # filament_assets_src = os.path.join(
+    #     os.environ[MUJOCO_PATH], 'build', 'src', 'experimental', 'filament', 'assets', 'ibl.ktx'
+    # )
+    # if os.path.exists(filament_assets_src):
+    #   dst = os.path.join(assets_dst, 'ibl.ktx')
+    #   shutil.copyfile(filament_assets_src, dst)
+    #   logging.info('Copied asset: %s -> %s', filament_assets_src, dst)
 
   def _copy_mujoco_headers(self):
     dst = os.path.join(
@@ -263,11 +299,10 @@ class BuildCMakeExtension(build_ext.build_ext):
         f'-DCMAKE_MODULE_PATH:PATH={cmake_module_path}',
         f'-DCMAKE_BUILD_TYPE:STRING={build_cfg}',
         f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY:PATH={self.build_temp}',
-        (
-            f'-DCMAKE_INTERPROCEDURAL_OPTIMIZATION:BOOL={"OFF" if self.debug else "ON"}'
-        ),
+        '-DCMAKE_INTERPROCEDURAL_OPTIMIZATION:BOOL=OFF',
         '-DCMAKE_Fortran_COMPILER:STRING=',
         '-DBUILD_TESTING:BOOL=OFF',
+        '-DMUJOCO_USE_DEFAULT_LD=ON'
     ]
 
     if self._mujoco_framework_path is not None:

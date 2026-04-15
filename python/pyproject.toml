@@ -6,9 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "mujoco"
 version = "3.7.1"
 authors = [
-    {name = "Google DeepMind", email = "mujoco@deepmind.com"},
+    {name = "Wilbert Pumacay", email = "wilbertp@allenai.org"},
 ]
-description = "MuJoCo Physics Simulator"
+description = "A custom fork of MuJoCo, built with Filament support"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 classifiers = [
