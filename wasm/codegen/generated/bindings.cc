@@ -3737,6 +3737,12 @@ struct MjModel {
   void set_nflexelemdata(int value) {
     ptr_->nflexelemdata = static_cast<mjtSize>(value);
   }
+  int nflexstiffness() const {
+    return static_cast<int>(ptr_->nflexstiffness);
+  }
+  void set_nflexstiffness(int value) {
+    ptr_->nflexstiffness = static_cast<mjtSize>(value);
+  }
   int nflexelemedge() const {
     return static_cast<int>(ptr_->nflexelemedge);
   }
@@ -4661,6 +4667,9 @@ struct MjModel {
   emscripten::val flex_elemdataadr() const {
     return emscripten::val(emscripten::typed_memory_view(ptr_->nflex, ptr_->flex_elemdataadr));
   }
+  emscripten::val flex_stiffnessadr() const {
+    return emscripten::val(emscripten::typed_memory_view(ptr_->nflex, ptr_->flex_stiffnessadr));
+  }
   emscripten::val flex_elemedgeadr() const {
     return emscripten::val(emscripten::typed_memory_view(ptr_->nflex, ptr_->flex_elemedgeadr));
   }
@@ -4746,7 +4755,7 @@ struct MjModel {
     return emscripten::val(emscripten::typed_memory_view(ptr_->nflex * 3, ptr_->flex_size));
   }
   emscripten::val flex_stiffness() const {
-    return emscripten::val(emscripten::typed_memory_view(ptr_->nflexelem * 21, ptr_->flex_stiffness));
+    return emscripten::val(emscripten::typed_memory_view(ptr_->nflexstiffness, ptr_->flex_stiffness));
   }
   emscripten::val flex_bending() const {
     return emscripten::val(emscripten::typed_memory_view(ptr_->nflexedge * 17, ptr_->flex_bending));
@@ -9876,6 +9885,18 @@ std::string mjs_setToCylinder_wrapper(MjsActuator& actuator, double timeconst, d
   return std::string(mjs_setToCylinder(actuator.get(), timeconst, bias, area, diameter));
 }
 
+std::string mjs_setToDCMotor_wrapper(MjsActuator& actuator, const val& motorconst, double resistance, const val& nominal, const val& saturation, const val& inductance, const val& cogging, const val& controller, const val& thermal, const val& lugre, int input_mode) {
+  UNPACK_NULLABLE_VALUE(double, motorconst);
+  UNPACK_NULLABLE_VALUE(double, nominal);
+  UNPACK_NULLABLE_VALUE(double, saturation);
+  UNPACK_NULLABLE_VALUE(double, inductance);
+  UNPACK_NULLABLE_VALUE(double, cogging);
+  UNPACK_NULLABLE_VALUE(double, controller);
+  UNPACK_NULLABLE_VALUE(double, thermal);
+  UNPACK_NULLABLE_VALUE(double, lugre);
+  return std::string(mjs_setToDCMotor(actuator.get(), motorconst_.data(), resistance, nominal_.data(), saturation_.data(), inductance_.data(), cogging_.data(), controller_.data(), thermal_.data(), lugre_.data(), input_mode));
+}
+
 std::string mjs_setToDamper_wrapper(MjsActuator& actuator, double kv) {
   return std::string(mjs_setToDamper(actuator.get(), kv));
 }
@@ -10812,6 +10833,7 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
     .value("mjBIAS_NONE", mjBIAS_NONE)
     .value("mjBIAS_AFFINE", mjBIAS_AFFINE)
     .value("mjBIAS_MUSCLE", mjBIAS_MUSCLE)
+    .value("mjBIAS_DCMOTOR", mjBIAS_DCMOTOR)
     .value("mjBIAS_USER", mjBIAS_USER);
   enum_<mjtBuiltin>("mjtBuiltin")
     .value("mjBUILTIN_NONE", mjBUILTIN_NONE)
@@ -10912,6 +10934,7 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
     .value("mjDYN_FILTER", mjDYN_FILTER)
     .value("mjDYN_FILTEREXACT", mjDYN_FILTEREXACT)
     .value("mjDYN_MUSCLE", mjDYN_MUSCLE)
+    .value("mjDYN_DCMOTOR", mjDYN_DCMOTOR)
     .value("mjDYN_USER", mjDYN_USER);
   enum_<mjtEnableBit>("mjtEnableBit")
     .value("mjENBL_OVERRIDE", mjENBL_OVERRIDE)
@@ -10974,6 +10997,7 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
     .value("mjGAIN_FIXED", mjGAIN_FIXED)
     .value("mjGAIN_AFFINE", mjGAIN_AFFINE)
     .value("mjGAIN_MUSCLE", mjGAIN_MUSCLE)
+    .value("mjGAIN_DCMOTOR", mjGAIN_DCMOTOR)
     .value("mjGAIN_USER", mjGAIN_USER);
   enum_<mjtGeom>("mjtGeom")
     .value("mjGEOM_PLANE", mjGEOM_PLANE)
@@ -11365,7 +11389,6 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
     .value("mjWARN_INERTIA", mjWARN_INERTIA)
     .value("mjWARN_CONTACTFULL", mjWARN_CONTACTFULL)
     .value("mjWARN_CNSTRFULL", mjWARN_CNSTRFULL)
-    .value("mjWARN_VGEOMFULL", mjWARN_VGEOMFULL)
     .value("mjWARN_BADQPOS", mjWARN_BADQPOS)
     .value("mjWARN_BADQVEL", mjWARN_BADQVEL)
     .value("mjWARN_BADQACC", mjWARN_BADQACC)
@@ -11834,6 +11857,7 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
     .property("flex_solmix", &MjModel::flex_solmix)
     .property("flex_solref", &MjModel::flex_solref)
     .property("flex_stiffness", &MjModel::flex_stiffness)
+    .property("flex_stiffnessadr", &MjModel::flex_stiffnessadr)
     .property("flex_texcoord", &MjModel::flex_texcoord)
     .property("flex_texcoordadr", &MjModel::flex_texcoordadr)
     .property("flex_vert", &MjModel::flex_vert)
@@ -12031,6 +12055,7 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
     .property("nflexevpair", &MjModel::nflexevpair, &MjModel::set_nflexevpair, reference())
     .property("nflexnode", &MjModel::nflexnode, &MjModel::set_nflexnode, reference())
     .property("nflexshelldata", &MjModel::nflexshelldata, &MjModel::set_nflexshelldata, reference())
+    .property("nflexstiffness", &MjModel::nflexstiffness, &MjModel::set_nflexstiffness, reference())
     .property("nflextexcoord", &MjModel::nflextexcoord, &MjModel::set_nflextexcoord, reference())
     .property("nflexvert", &MjModel::nflexvert, &MjModel::set_nflexvert, reference())
     .property("ngeom", &MjModel::ngeom, &MjModel::set_ngeom, reference())
@@ -13295,6 +13320,7 @@ EMSCRIPTEN_BINDINGS(mujoco_bindings) {
   function("mjs_setName", &mjs_setName_wrapper);
   function("mjs_setToAdhesion", &mjs_setToAdhesion_wrapper);
   function("mjs_setToCylinder", &mjs_setToCylinder_wrapper);
+  function("mjs_setToDCMotor", &mjs_setToDCMotor_wrapper);
   function("mjs_setToDamper", &mjs_setToDamper_wrapper);
   function("mjs_setToIntVelocity", &mjs_setToIntVelocity_wrapper);
   function("mjs_setToMotor", &mjs_setToMotor_wrapper);

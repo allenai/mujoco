@@ -48,7 +48,8 @@ void mjrf_makeFilamentContext(const mjModel* m, mjrContext* con,
   if (g_filament_context != nullptr) {
     mju_error("Context already exists!");
   }
-  g_filament_context = new mujoco::FilamentContext(config, m, con);
+  g_filament_context = new mujoco::FilamentContext(config);
+  g_filament_context->Init(m);
 }
 
 void mjrf_defaultContext(mjrContext* con) {
@@ -56,9 +57,11 @@ void mjrf_defaultContext(mjrContext* con) {
 }
 
 void mjrf_makeContext(const mjModel* m, mjrContext* con, int fontscale) {
-  mjr_freeContext(con);
+  mjrf_freeContext(con);
   mjrFilamentConfig cfg;
   mjrf_defaultFilamentConfig(&cfg);
+  cfg.width = m->vis.global.offwidth;
+  cfg.height = m->vis.global.offheight;
   mjrf_makeFilamentContext(m, con, &cfg);
 }
 
@@ -68,12 +71,12 @@ void mjrf_freeContext(mjrContext* con) {
     delete g_filament_context;
     g_filament_context = nullptr;
   }
-  mjr_defaultContext(con);
+  mjrf_defaultContext(con);
 }
 
 void mjrf_render(mjrRect viewport, mjvScene* scn, const mjrContext* con) {
   CheckFilamentContext();
-  g_filament_context->Render(viewport, scn, con);
+  g_filament_context->Render(viewport, scn);
 }
 
 void mjrf_uploadMesh(const mjModel* m, const mjrContext* con, int meshid) {

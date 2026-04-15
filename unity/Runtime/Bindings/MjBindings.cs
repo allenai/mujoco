@@ -113,7 +113,7 @@ public const int mjMAXLINEPNT = 1001;
 public const int mjMAXPLANEGRID = 200;
 public const bool THIRD_PARTY_MUJOCO_MJXMACRO_H_ = true;
 public const bool THIRD_PARTY_MUJOCO_MUJOCO_H_ = true;
-public const int mjVERSION_HEADER = 3007000;
+public const int mjVERSION_HEADER = 3007001;
 
 
 // ------------------------------------Enums------------------------------------
@@ -269,19 +269,22 @@ public enum mjtDyn : int{
   mjDYN_FILTER = 2,
   mjDYN_FILTEREXACT = 3,
   mjDYN_MUSCLE = 4,
-  mjDYN_USER = 5,
+  mjDYN_DCMOTOR = 5,
+  mjDYN_USER = 6,
 }
 public enum mjtGain : int{
   mjGAIN_FIXED = 0,
   mjGAIN_AFFINE = 1,
   mjGAIN_MUSCLE = 2,
-  mjGAIN_USER = 3,
+  mjGAIN_DCMOTOR = 3,
+  mjGAIN_USER = 4,
 }
 public enum mjtBias : int{
   mjBIAS_NONE = 0,
   mjBIAS_AFFINE = 1,
   mjBIAS_MUSCLE = 2,
-  mjBIAS_USER = 3,
+  mjBIAS_DCMOTOR = 3,
+  mjBIAS_USER = 4,
 }
 public enum mjtObj : int{
   mjOBJ_UNKNOWN = 0,
@@ -486,12 +489,11 @@ public enum mjtWarning : int{
   mjWARN_INERTIA = 0,
   mjWARN_CONTACTFULL = 1,
   mjWARN_CNSTRFULL = 2,
-  mjWARN_VGEOMFULL = 3,
-  mjWARN_BADQPOS = 4,
-  mjWARN_BADQVEL = 5,
-  mjWARN_BADQACC = 6,
-  mjWARN_BADCTRL = 7,
-  mjNWARNING = 8,
+  mjWARN_BADQPOS = 3,
+  mjWARN_BADQVEL = 4,
+  mjWARN_BADQACC = 5,
+  mjWARN_BADCTRL = 6,
+  mjNWARNING = 7,
 }
 public enum mjtTimer : int{
   mjTIMER_STEP = 0,
@@ -960,6 +962,7 @@ public unsafe struct mjModel_ {
   public UInt64 nflexedge;
   public UInt64 nflexelem;
   public UInt64 nflexelemdata;
+  public UInt64 nflexstiffness;
   public UInt64 nflexelemedge;
   public UInt64 nflexshelldata;
   public UInt64 nflexevpair;
@@ -1206,6 +1209,7 @@ public unsafe struct mjModel_ {
   public int* flex_elemadr;
   public int* flex_elemnum;
   public int* flex_elemdataadr;
+  public int* flex_stiffnessadr;
   public int* flex_elemedgeadr;
   public int* flex_shellnum;
   public int* flex_shelldataadr;
@@ -5696,7 +5700,6 @@ public unsafe struct mjData_ {
   public mjWarningStat_ warning4;
   public mjWarningStat_ warning5;
   public mjWarningStat_ warning6;
-  public mjWarningStat_ warning7;
   public mjTimerStat_ timer0;
   public mjTimerStat_ timer1;
   public mjTimerStat_ timer2;
@@ -6699,6 +6702,9 @@ public static unsafe extern void mj_clearCache(mjCache_* cache);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern mjModel_* mj_loadXML([MarshalAs(UnmanagedType.LPStr)]string filename, void* vfs, StringBuilder error, int error_sz);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern int mj_encode(void* s, mjModel_* m, [MarshalAs(UnmanagedType.LPStr)]string filename, [MarshalAs(UnmanagedType.LPStr)]string content_type, void* vfs, StringBuilder error, int error_sz);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern int mj_saveLastXML([MarshalAs(UnmanagedType.LPStr)]string filename, mjModel_* m, StringBuilder error, int error_sz);
