@@ -28,9 +28,16 @@ while [[ $# -gt 0 ]]; do
         --vulkan) build_with_vulkan=ON; shift ;;
         --studio) build_studio=ON; shift ;;
         --njobs) njobs="$2"; shift 2 ;;
+        --install-dir) install_dir="$2"; shift 2 ;;
         *) echo "Unkown option: $1"; exit 1 ;;
     esac
 done
+
+[[ -n $install_dir ]] && USER_INSTALL_DIR="${install_dir}" || USER_INSTALL_DIR="${ROOT_DIR}/install"
+
+if [ ! -d "${USER_INSTALL_DIR}" ]; then
+    mkdir -p $USER_INSTALL_DIR
+fi
 
 if [[ "${build_filament}" == "ON" ]]; then
     export CC=/usr/bin/clang
@@ -55,7 +62,7 @@ CMAKE_CONFIG_ARGS=(
     "-DFILAMENT_SUPPORTS_VULKAN=OFF"
     "-DFILAMENT_SUPPORTS_METAL=OFF"
     "-DMUJOCO_BUILD_STUDIO=${build_studio}"
-    "-DCMAKE_INSTALL_PREFIX=install"
+    "-DCMAKE_INSTALL_PREFIX=${USER_INSTALL_DIR}"
     "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF"
 )
 
@@ -109,5 +116,5 @@ fi
 MUJOCO_CMAKE_ARGS="${MUJOCO_CMAKE_ARGS}" MUJOCO_FILAMENT_ASSETS="${MUJOCO_FILAMENT_ASSETS}" uv build --wheel --force-pep517 ${ROOT_DIR}/python/dist/mujoco-*.tar.gz --out-dir ${ROOT_DIR}/python/dist
 
 # Clean install dir afterwards, to avoid being used as default search path
-rm -rf install/
+rm -rf ${USER_INSTALL_DIR}
 

@@ -97,7 +97,11 @@ class Renderer {
   void UpdateFps();
 
   void* native_window_ = nullptr;
+#if defined(__APPLE__)
+  GraphicsMode gfx_ = GraphicsMode::FilamentOpenGl;
+#else
   GraphicsMode gfx_ = GraphicsMode::FilamentVulkan;
+#endif
   std::shared_ptr<void> graphics_api_context_ = nullptr;
   std::function<void(mjrRect, mjvScene*)> render_;
   std::function<void(int)> set_buffer_;
