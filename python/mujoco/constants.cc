@@ -94,6 +94,11 @@ PYBIND11_MODULE(_constants, pymodule) {
   pymodule.attr("mjFRAMESTRING") = MakeTuple(mjFRAMESTRING);
   pymodule.attr("mjVISSTRING") = MakeTuple(mjVISSTRING);
   pymodule.attr("mjRNDSTRING") = MakeTuple(mjRNDSTRING);
+
+  // #if defined(mjRENDERER)
+  pymodule.attr("mjRENDERER") = py::cast("filament");
+  // #endif
+
 }
 }  // namespace
 }  // namespace mujoco::python

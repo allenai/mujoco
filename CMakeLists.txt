@@ -211,6 +211,12 @@ if(MUJOCO_USE_FILAMENT AND NOT EMSCRIPTEN)
 
 endif()
 
+if(MUJOCO_USE_FILAMENT)
+  target_compile_definitions(mujoco PUBLIC mjRENDERER="filament")
+else()
+  target_compile_definitions(mujoco PUBLIC mjRENDERER="classic")
+endif()
+
 set_target_properties(
   mujoco PROPERTIES VERSION "${mujoco_VERSION}" PUBLIC_HEADER "${MUJOCO_HEADERS}"
 )
