@@ -14,6 +14,16 @@
   </a>
 </p>
 
+---
+
+:warning: This is a fork of [MuJoCo][Repo] that adds some minor changes to make Python wheels
+with support for their new renderer based on [Filament]. We provide some of these wheels
+for Linux on our [Molmospaces] and [Molmobot] repositories, as we used it for evaluation
+when suppoort was added last year. Please, refer check [this](ai2/README.md) information
+on how to build and generate the wheels for your specific platform.
+
+---
+
 **MuJoCo** stands for **Mu**lti-**Jo**int dynamics with **Co**ntact. It is a
 general purpose physics engine that aims to facilitate research and development
 in robotics, biomechanics, graphics and animation, machine learning, and other
@@ -202,3 +212,7 @@ This is not an officially supported Google product.
 [changelog]: https://mujoco.readthedocs.io/en/latest/changelog.html
 [Python bindings]: https://mujoco.readthedocs.io/en/stable/python.html#python-bindings
 [PyPI]: https://pypi.org/project/mujoco/
+[Repo]: https://github.com/google-deepmind/mujoco/
+[Filament]: https://github.com/google/filament
+[Molmospaces]: https://github.com/allenai/molmospaces
+[Molmobot]: https://github.com/allenai/MolmoBot
