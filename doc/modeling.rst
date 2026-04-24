@@ -1442,6 +1442,16 @@ instead to specify shear and volumetric stiffnesses separately using the `Poisso
 <https://en.wikipedia.org/wiki/Poisson%27s_ratio>`__ of the material. For more details, see the `Saint Venant-Kirchhoff
 <https://en.wikipedia.org/wiki/Hyperelastic_material#Saint_Venant%E2%80%93Kirchhoff_model>`__ hyperelastic model.
 
+**Parametrization types**.
+
+While the default behavior of :el:`flexcomp` produces a "full" flex where every node corresponds to a MuJoCo body, it
+also supports specialized :ref:`parametrizations<body-flexcomp-dof>` for volumetric objects: **trilinear** and
+**quadratic**. Instead of directly simulating all nodes, these options define a background grid of cells. The positions
+of the interior vertices are computed by interpolating the positions of the cell corners. Trilinear flexes use 8-node
+hexahedral cells with linear interpolation along each axis, while quadratic flexes use 27-node cells with quadratic
+interpolation, allowing for curved deformation modes. These grid-based parametrizations require fewer degrees of freedom
+than full flexes and can result in significantly faster simulation times, especially for large volumetric soft bodies.
+
 **Creation and visualization**.
 
 .. code-block:: xml
@@ -1757,10 +1767,11 @@ better visualize and understand the contact configuration and resulting forces.
 
   a. Improve the geometry of the contacting geoms in order to add more contact points, possibly with non-flat
      geometry (e.g., bumps), so slippage is prevented by the normal force and not only frictional components.
-  b. If contacts are between flat surfaces, try enabling the :ref:`multiccd<option-flag-multiccd>` flag, which allows
-     the detector to find more contacts than the single contact returned by the convex-convex collider.
-  c. Try enabling the native collision detection pipeline by setting the :ref:`nativeccd<option-flag-nativeccd>` flag,
-     which uses a more accurate and efficient convex collision detection algorithm.
+  b. If contacts are between flat surfaces, make sure that the flag :ref:`multiccd<option-flag-multiccd>` is not
+     disabled (enabled by default), as it allows the detector to find more contacts than the single contact
+     returned by the convex-convex collider.
+  c. Make sure that the flag :ref:`nativeccd<option-flag-nativeccd>` is not disabled (enabled by default),
+     as NativeCCD is a more accurate and efficient convex collision detection algorithm.
 
 **High-frequency vibration**
   High-frequency, low-amplitude vibrations are also a real-world problem in many industrial settings, but unlike in

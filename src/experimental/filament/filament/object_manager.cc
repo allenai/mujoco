@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -27,9 +28,7 @@
 #include <filament/IndirectLight.h>
 #include <filament/Material.h>
 #include <filament/Skybox.h>
-#include <math/mat3.h>
-#include <math/scalar.h>
-#include <math/vec3.h>
+#include <filament/Texture.h>
 #include <mujoco/mujoco.h>
 #include "experimental/filament/filament/texture.h"
 #include "user/user_resource.h"
@@ -79,61 +78,55 @@ static fs::path GetLibraryDirectory() {
   return fs::path();
 }
 
-
-
 namespace mujoco {
-namespace {
 
-// Loads binary data from a file using mjrFilamentConfig callbacks.
-struct Asset {
-  explicit Asset(std::string_view filename) {
-    std::string path = "filament:" + std::string(filename);
+static std::string GetAssetPath(std::string_view filename) {
+  std::string path = "filament:" + std::string(filename);
+  return path;
+}
 
-    std::array<char, 1000> error;
+ObjectManager::Asset::Asset(std::string_view filename) {
+  std::string path = GetAssetPath(filename);
 
-    auto envvar_install_dir = std::getenv("MUJOCO_INSTALL_DIR");
-    if (!envvar_install_dir) {
-      auto lib_dir = GetLibraryDirectory();
-      // std::cout << "Library dir: " << lib_dir.c_str() << std::endl;
-      auto assets_dir = lib_dir / "filament" / "assets" / "data";
-      // std::cout << "Assets dir: " << assets_dir.c_str() << std::endl;
-      if (fs::is_directory(assets_dir)) {
-        // std::cout << "Var assets_dir is a valid directory" << std::endl;
-        std::string str_assets_dir = assets_dir.string() + "/";
-        resource = mju_openResource(str_assets_dir.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
-      }
-      else {
-        // std::cout << "Falling back to default dir for filament assets" << std::endl;
-        resource = mju_openResource("", path.c_str(), nullptr, error.data(), error.size());
-      }
+  std::array<char, 1000> error;
+
+  auto envvar_install_dir = std::getenv("MUJOCO_INSTALL_DIR");
+  if (!envvar_install_dir) {
+    auto lib_dir = GetLibraryDirectory();
+    // std::cout << "Library dir: " << lib_dir.c_str() << std::endl;
+    auto assets_dir = lib_dir / "filament" / "assets" / "data";
+    // std::cout << "Assets dir: " << assets_dir.c_str() << std::endl;
+    if (fs::is_directory(assets_dir)) {
+      // std::cout << "Var assets_dir is a valid directory" << std::endl;
+      std::string str_assets_dir = assets_dir.string() + "/";
+      resource = mju_openResource(str_assets_dir.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
     }
     else {
-      std::string dir_path = std::string(envvar_install_dir) + "filament/assets/";
-      resource = mju_openResource(dir_path.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
-    }
-
-    if (!resource) {
-      mju_error("Error while opening resource > %s", error.data());
-      throw std::runtime_error("Got an error while loading a file when loading filament materials.");
-    }
-    size = mju_readResource(resource, const_cast<const void**>(&payload));
-  }
-
-  ~Asset() {
-    if (resource) {
-      mju_closeResource(resource);
+      // std::cout << "Falling back to default dir for filament assets" << std::endl;
+      resource = mju_openResource("", path.c_str(), nullptr, error.data(), error.size());
     }
   }
+  else {
+    std::string dir_path = std::string(envvar_install_dir) + "filament/assets/";
+    resource = mju_openResource(dir_path.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
+  }
 
-  Asset(const Asset&) = delete;
-  Asset& operator=(const Asset&) = delete;
+  if (!resource) {
+    mju_error("Error while opening resource > %s", error.data());
+    throw std::runtime_error("Got an error while loading a file when loading filament materials.");
+  }
+  size = mju_readResource(resource, const_cast<const void**>(&payload));
+}
 
-  int size = 0;
-  void* payload = nullptr;
-  mjResource* resource = nullptr;
-};
+ObjectManager::Asset::~Asset() {
+  if (resource) {
+    mju_closeResource(resource);
+  }
+}
 
-}  // namespace
+std::span<const std::byte> ObjectManager::Asset::GetBytes() const {
+  return {reinterpret_cast<const std::byte*>(payload), size};
+}
 
 ObjectManager::ObjectManager(filament::Engine* engine)
     : engine_(engine) {
@@ -169,24 +162,16 @@ ObjectManager::ObjectManager(filament::Engine* engine)
   static uint8_t normal_data[3] = {128, 128, 255};
   static uint8_t orm_data[3] = {0, 255, 0};
 
-  TextureConfig config;
-  DefaultTextureConfig(&config);
-  config.width = 1;
-  config.height = 1;
-  config.target = mjTEXTURE_2D;
-  config.format = mjPIXEL_FORMAT_RGB8;
-  config.color_space = mjCOLORSPACE_LINEAR;
-
-  auto CreateFallbackTexture = [this, &config](uint8_t color[3]) {
-    auto texture =  std::make_unique<Texture>(engine_, config);
-
-    TextureData payload;
-    DefaultTextureData(&payload);
-    payload.bytes = color;
-    payload.nbytes = 3;
-    payload.release_callback = nullptr;
-    payload.user_data = nullptr;
-    texture->Upload(payload);
+  auto CreateFallbackTexture = [this](uint8_t color[3]) {
+    filament::Texture::Builder builder;
+    builder.width(1);
+    builder.height(1);
+    builder.format(filament::Texture::InternalFormat::RGB8);
+    builder.sampler(filament::Texture::Sampler::SAMPLER_2D);
+    filament::Texture* texture = builder.build(*engine_);
+    const filament::Texture::Type type = filament::Texture::Type::UBYTE;
+    const filament::Texture::Format format = filament::Texture::Format::RGB;
+    texture->setImage(*engine_, 0, {color, 3, format, type});
     return texture;
   };
 
@@ -195,19 +180,21 @@ ObjectManager::ObjectManager(filament::Engine* engine)
   fallback_normal_ = CreateFallbackTexture(normal_data);
   fallback_orm_ = CreateFallbackTexture(orm_data);
 
-  fallback_textures_[mjTEXROLE_USER] = fallback_black_.get();
-  fallback_textures_[mjTEXROLE_RGB] = fallback_white_.get();
-  fallback_textures_[mjTEXROLE_OCCLUSION] = fallback_white_.get();
-  fallback_textures_[mjTEXROLE_ROUGHNESS] = fallback_white_.get();
-  fallback_textures_[mjTEXROLE_METALLIC] = fallback_black_.get();
-  fallback_textures_[mjTEXROLE_NORMAL] = fallback_normal_.get();
-  fallback_textures_[mjTEXROLE_EMISSIVE] = fallback_black_.get();
-  fallback_textures_[mjTEXROLE_ORM] = fallback_orm_.get();
-
-  LoadFallbackIndirectLight("ibl.ktx");
+  fallback_textures_[mjTEXROLE_USER] = fallback_black_;
+  fallback_textures_[mjTEXROLE_RGB] = fallback_white_;
+  fallback_textures_[mjTEXROLE_OCCLUSION] = fallback_white_;
+  fallback_textures_[mjTEXROLE_ROUGHNESS] = fallback_white_;
+  fallback_textures_[mjTEXROLE_METALLIC] = fallback_black_;
+  fallback_textures_[mjTEXROLE_NORMAL] = fallback_normal_;
+  fallback_textures_[mjTEXROLE_EMISSIVE] = fallback_black_;
+  fallback_textures_[mjTEXROLE_ORM] = fallback_orm_;
 }
 
 ObjectManager::~ObjectManager() {
+  engine_->destroy(fallback_black_);
+  engine_->destroy(fallback_white_);
+  engine_->destroy(fallback_normal_);
+  engine_->destroy(fallback_orm_);
   for (auto& iter : materials_) {
     engine_->destroy(iter);
   }
@@ -220,7 +207,7 @@ filament::Material* ObjectManager::GetMaterial(MaterialType type) const {
   return materials_[type];
 }
 
-const Texture* ObjectManager::GetFallbackTexture(
+const filament::Texture* ObjectManager::GetFallbackTexture(
     mjtTextureRole role) const {
   if (role < 0 || role >= mjNTEXROLE) {
     mju_error("Invalid texture role: %d", role);
@@ -228,39 +215,8 @@ const Texture* ObjectManager::GetFallbackTexture(
   return fallback_textures_[role];
 }
 
-const Texture* ObjectManager::GetFallbackIndirectLightTexture() {
-  return fallback_indirect_light_texture_.get();
-}
-
-void ObjectManager::LoadFallbackIndirectLight(std::string_view filename) {
-  fallback_indirect_light_texture_.reset();
-
-  Asset* asset = new Asset(filename);
-  auto release_asset = +[](void* user_data) {
-    delete static_cast<Asset*>(user_data);
-  };
-  if (asset->size == 0) {
-    release_asset(asset);
-    return;
-  }
-
-  TextureConfig config;
-  DefaultTextureConfig(&config);
-  config.width = 1;
-  config.height = 1;
-  config.target = mjTEXTURE_CUBE;
-  config.format = mjPIXEL_FORMAT_KTX;
-  config.color_space = mjCOLORSPACE_AUTO;
-
-  fallback_indirect_light_texture_ = std::make_unique<Texture>(engine_, config);
-
-  TextureData payload;
-  DefaultTextureData(&payload);
-  payload.bytes = asset->payload;
-  payload.nbytes = static_cast<size_t>(asset->size);
-  payload.release_callback = release_asset;
-  payload.user_data = asset;
-
-  fallback_indirect_light_texture_->Upload(payload);
+std::unique_ptr<ObjectManager::Asset> ObjectManager::LoadAsset(
+    std::string_view filename) {
+  return std::unique_ptr<Asset>(new Asset(filename));
 }
 }  // namespace mujoco

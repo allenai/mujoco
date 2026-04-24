@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_BRIDGE_H_
-#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_BRIDGE_H_
+#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_BRIDGE_H_
+#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_BRIDGE_H_
 
 #include <memory>
 #include <optional>
@@ -24,20 +24,19 @@
 #include <math/vec3.h>
 #include <mujoco/mjvisualize.h>
 #include <mujoco/mujoco.h>
+#include "experimental/filament/compat/model_objects.h"
 #include "experimental/filament/filament/light.h"
-#include "experimental/filament/filament/material.h"
-#include "experimental/filament/filament/model_objects.h"
 #include "experimental/filament/filament/object_manager.h"
 #include "experimental/filament/filament/renderable.h"
 #include "experimental/filament/filament/scene_view.h"
+#include "experimental/filament/filament/texture.h"
 
 namespace mujoco {
 
 // Manages all mjModel data and updates a SceneView using an mjvScene.
 class SceneBridge {
  public:
-  SceneBridge(ObjectManager* object_mgr, const mjModel* model,
-              SceneView* scene_view);
+  SceneBridge(ObjectManager* object_mgr, const mjModel* model);
   ~SceneBridge();
 
   // Updates the environment light using the KTX image at the given path.
@@ -55,7 +54,8 @@ class SceneBridge {
   void UploadTexture(const mjModel* model, int id);
   void UploadHeightField(const mjModel* model, int id);
 
-  SceneView* GetSceneView() const { return scene_view_; }
+  // Returns the managed scene.
+  SceneView* GetSceneView() const { return scene_view_.get(); }
 
   SceneBridge(const SceneBridge&) = delete;
   SceneBridge& operator=(const SceneBridge&) = delete;
@@ -68,10 +68,11 @@ class SceneBridge {
   std::optional<filament::math::float3> ClipFromWorld(
       const filament::math::float3& pos) const;
 
-  SceneView* scene_view_ = nullptr;
+  std::unique_ptr<SceneView> scene_view_;
   ObjectManager* object_mgr_ = nullptr;
   std::unique_ptr<ModelObjects> model_objects_;
   std::unique_ptr<Light> fallback_ibl_;
+  std::unique_ptr<Texture> fallback_ibl_texture_;
   std::vector<std::unique_ptr<Light>> lights_;
   std::vector<std::unique_ptr<Renderable>> renderables_;
   filament::math::mat4 clip_from_world_;
@@ -80,9 +81,8 @@ class SceneBridge {
   float fallback_head_light_intensity_ = 0.f;
   float fallback_scene_light_intensity_ = 80'000.f;
   float fallback_environment_light_intensity_ = 5'000.f;
-  Material::Textures fallback_textures_;
 };
 
 }  // namespace mujoco
 
-#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_BRIDGE_H_
+#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_BRIDGE_H_

@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_GEOM_UTIL_H_
-#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_GEOM_UTIL_H_
+#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_GEOM_UTIL_H_
+#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_GEOM_UTIL_H_
 
 #include <memory>
 
 #include <mujoco/mjvisualize.h>
-#include "experimental/filament/filament/material.h"
-#include "experimental/filament/filament/model_objects.h"
+#include "experimental/filament/compat/model_objects.h"
 #include "experimental/filament/filament/object_manager.h"
 #include "experimental/filament/filament/renderable.h"
 
@@ -28,9 +27,8 @@ namespace mujoco {
 // Creates a Renderable from the given mjvGeom.
 std::unique_ptr<Renderable> CreateGeomRenderable(
     const mjvGeom& geom, const mjvScene* scene, ObjectManager* object_mgr,
-    ModelObjects* model_objs, const float headpos[3],
-    Material::Textures* fallback_textures);
+    ModelObjects* model_objs, const float headpos[3]);
 
 }  // namespace mujoco
 
-#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_GEOM_UTIL_H_
+#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_GEOM_UTIL_H_

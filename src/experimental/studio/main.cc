@@ -75,7 +75,7 @@ class FileResource {
 int main(int argc, char** argv, char** envp) {
   absl::ParseCommandLine(argc, argv);
 
-  const char* home = getenv("HOME");
+  const char* home = std::getenv("HOME");
   const std::string ini_path = std::string(home ? home : ".") + "/.mujoco.ini";
 
   mjpResourceProvider resource_provider;
@@ -107,6 +107,20 @@ int main(int argc, char** argv, char** envp) {
 #ifdef __linux__
     eMode = mujoco::platform::GraphicsMode::FilamentVulkan;
 #endif
+  const char* session_type = std::getenv("XDG_SESSION_TYPE");
+  const char* wayland_display = std::getenv("WAYLAND_DISPLAY");
+  if ((session_type && std::string_view(session_type) == "wayland") ||
+      wayland_display) {
+    if (gfx.empty()) {
+      gfx = "opengl_headless";
+    } else if (gfx == "classic" || gfx == "opengl") {
+      mju_error(
+          "Wayland does not support '%s' graphics mode. "
+          "Restart with a different graphics mode, or login using X11.",
+          gfx.c_str());
+    }
+  }
+
   mujoco::platform::GraphicsMode gfx_mode =
       mujoco::platform::GraphicsModeFromString(
           gfx, eMode);

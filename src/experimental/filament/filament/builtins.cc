@@ -59,15 +59,16 @@ static std::size_t NumIndicesPerSide(int num_quads_per_axis) {
   return kNumIndicesPerQuad * num_quads_per_axis * num_quads_per_axis;
 }
 
-class BuiltinBuilder : MeshData {
+class BuiltinBuilder : mjrMeshData {
  public:
-  BuiltinBuilder() { DefaultMeshData(this); }
+  BuiltinBuilder() { mjr_defaultMeshData(this); }
   virtual ~BuiltinBuilder() = default;
 
   template <typename T, typename... Args>
-  static MeshPtr Create(filament::Engine* engine, Args&&... args) {
+  static std::unique_ptr<Mesh> Create(filament::Engine* engine,
+                                      Args&&... args) {
     auto builder = new T(std::forward<Args>(args)...);
-    MeshData* mesh_data = builder->PrepareMeshData();
+    mjrMeshData* mesh_data = builder->PrepareMeshData();
     mesh_data->release_callback = +[](void* user_data) {
       delete static_cast<BuiltinBuilder*>(user_data);
     };
@@ -75,13 +76,13 @@ class BuiltinBuilder : MeshData {
     return std::make_unique<Mesh>(engine, *mesh_data);
   }
 
-  MeshData* PrepareMeshData() {
-    // Update the `MeshData` fields.
+  mjrMeshData* PrepareMeshData() {
+    // Update the `mjrMeshData` fields.
     nattributes = 2;
-    attributes[0].usage = mjVERTEX_ATTRIBUTE_POSITION;
+    attributes[0].usage = mjVERTEX_ATTRIBUTE_USAGE_POSITION;
     attributes[0].type = mjVERTEX_ATTRIBUTE_TYPE_FLOAT3;
     attributes[0].bytes = reinterpret_cast<const void*>(positions_.data());
-    attributes[1].usage = mjVERTEX_ATTRIBUTE_TANGENTS;
+    attributes[1].usage = mjVERTEX_ATTRIBUTE_USAGE_TANGENTS;
     attributes[1].type = mjVERTEX_ATTRIBUTE_TYPE_FLOAT4;
     attributes[1].bytes = reinterpret_cast<const void*>(orientations_.data());
     nvertices = positions_.size();
@@ -90,8 +91,8 @@ class BuiltinBuilder : MeshData {
     nindices = indices_.size();
     primitive_type =
         primitive_type_ == filament::backend::PrimitiveType::TRIANGLES
-            ? mjPRIM_TYPE_TRIANGLES
-            : mjPRIM_TYPE_LINES;
+            ? mjMESH_PRIMITIVE_TYPE_TRIANGLES
+            : mjMESH_PRIMITIVE_TYPE_LINES;
     index_type = mjINDEX_TYPE_USHORT;
     bounds_min[0] = bounds_.getMin().x;
     bounds_min[1] = bounds_.getMin().y;
@@ -621,43 +622,43 @@ class DomeBuilder : public BuiltinBuilder {
   }
 };
 
-MeshPtr CreateLine(filament::Engine* engine) {
+std::unique_ptr<Mesh> CreateLine(filament::Engine* engine) {
   return BuiltinBuilder::Create<LineBuilder>(engine);
 }
 
-MeshPtr CreatePlane(filament::Engine* engine, int nquad) {
+std::unique_ptr<Mesh> CreatePlane(filament::Engine* engine, int nquad) {
   return BuiltinBuilder::Create<PlaneBuilder>(engine, nquad);
 }
 
-MeshPtr CreateTriangle(filament::Engine* engine) {
+std::unique_ptr<Mesh> CreateTriangle(filament::Engine* engine) {
   return BuiltinBuilder::Create<TriangleBuilder>(engine);
 }
 
-MeshPtr CreateBox(filament::Engine* engine, int nquad) {
+std::unique_ptr<Mesh> CreateBox(filament::Engine* engine, int nquad) {
   return BuiltinBuilder::Create<BoxBuilder>(engine, nquad);
 }
 
-MeshPtr CreateLineBox(filament::Engine* engine) {
+std::unique_ptr<Mesh> CreateLineBox(filament::Engine* engine) {
   return BuiltinBuilder::Create<LineBoxBuilder>(engine);
 }
 
-MeshPtr CreateSphere(filament::Engine* engine, int nstack, int nslice) {
+std::unique_ptr<Mesh> CreateSphere(filament::Engine* engine, int nstack, int nslice) {
   return BuiltinBuilder::Create<SphereBuilder>(engine, nstack, nslice);
 }
 
-MeshPtr CreateTube(filament::Engine* engine, int nstack, int nslice) {
+std::unique_ptr<Mesh> CreateTube(filament::Engine* engine, int nstack, int nslice) {
   return BuiltinBuilder::Create<TubeBuilder>(engine, nstack, nslice);
 }
 
-MeshPtr CreateDisk(filament::Engine* engine, int nslice) {
+std::unique_ptr<Mesh> CreateDisk(filament::Engine* engine, int nslice) {
   return BuiltinBuilder::Create<DiskBuilder>(engine, nslice);
 }
 
-MeshPtr CreateDome(filament::Engine* engine, int nstack, int nslice) {
+std::unique_ptr<Mesh> CreateDome(filament::Engine* engine, int nstack, int nslice) {
   return BuiltinBuilder::Create<DomeBuilder>(engine, nstack, nslice);
 }
 
-MeshPtr CreateCone(filament::Engine* engine, int nstack, int nslice) {
+std::unique_ptr<Mesh> CreateCone(filament::Engine* engine, int nstack, int nslice) {
   return BuiltinBuilder::Create<ConeBuilder>(engine, nstack, nslice);
 }
 

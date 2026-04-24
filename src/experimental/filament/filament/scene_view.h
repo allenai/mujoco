@@ -27,8 +27,8 @@
 #include <filament/View.h>
 #include <mujoco/mujoco.h>
 #include "experimental/filament/filament/color_grading_options.h"
+#include "experimental/filament/filament/draw_mode.h"
 #include "experimental/filament/filament/light.h"
-#include "experimental/filament/filament/material.h"
 #include "experimental/filament/filament/renderable.h"
 #include "experimental/filament/filament/render_target.h"
 
@@ -38,8 +38,7 @@ namespace mujoco {
 //
 // The filament Scene is populated with the objects (e.g. lights, renderables,
 // skybox, etc.). It manages multiple views to support a variety of draw modes
-// (e.g. normal, depth, segmentation, etc.) as well as reflective surfaces. It
-// also manages a separate scene and view for UX rendering.
+// (e.g. normal, depth, segmentation, etc.) as well as reflective surfaces.
 class SceneView {
  public:
   SceneView(filament::Engine* engine);
@@ -53,25 +52,16 @@ class SceneView {
   void AddToScene(filament::Skybox* skybox);
   void RemoveFromScene(filament::Skybox* skybox);
 
-  // Adds/removes entities from the UX scene, which is rendered separately.
-  void AddToUxScene(Renderable* renderable);
-  void RemoveFromUxScene(Renderable* renderable);
-
   // Parameters for rendering the scene.
-  using DrawMode = Material::DrawMode;
   struct RenderRequest {
     // The draw mode (e.g. normal, depth, segmentation) to render.
-    DrawMode draw_mode = DrawMode::kNormal;
+    DrawMode draw_mode = DrawMode::Color;
     // The target viewport for the rendered image.
     mjrRect viewport;
     // The camera from which to render the scene.
     mjvGLCamera camera;
     // An optional render target into which the scene will be rendered.
     RenderTarget* target = nullptr;
-    // Whether or not to render the UX as a separate pass.
-    bool enable_ux = false;
-    // The scale factor to use for UX rendering.
-    float gui_scale = 1.0f;
   };
 
   // Renders the scene.
@@ -79,6 +69,18 @@ class SceneView {
 
   // Returns the filament Engine managing the scene.
   filament::Engine* GetEngine() const { return engine_; }
+
+  // Enables/disables shadows for the default render view.
+  void EnableShadows();
+  void DisableShadows();
+
+  // Enables/disables reflections for the default render view.
+  void EnableReflections();
+  void DisableReflections();
+
+  // Enables/disables post processing for the default render view.
+  void EnablePostProcessing();
+  void DisablePostProcessing();
 
   // Returns the underlying filament View that is used for normal rendering.
   // Callers can update rendering settings (e.g. post processing) directly.
@@ -98,28 +100,22 @@ class SceneView {
 
   filament::Engine* engine_ = nullptr;
   filament::Scene* scene_ = nullptr;
-  filament::Scene* ux_scene_ = nullptr;
   filament::Camera* camera_ = nullptr;
   filament::ColorGrading* color_grading_ = nullptr;
   ColorGradingOptions color_grading_options_;
-  std::array<filament::View*, DrawMode::kNumDrawModes> views_;
-  DrawMode active_mode_ = DrawMode::kNumDrawModes;
+  std::array<filament::View*, kNumDrawModes> views_;
 
   // Scene objects.
   std::unordered_set<Light*> lights_;
   std::unordered_set<Renderable*> renderables_;
   filament::Skybox* skybox_ = nullptr;
 
-  // Custom view for UX.
-  filament::View* ux_view_ = nullptr;
-  filament::Camera* ux_camera_ = nullptr;
-  std::unordered_set<Renderable*> ux_renderables_;
-
   // Custom view and camera for reflective surfaces.
   filament::View* reflect_view_ = nullptr;
   filament::Camera* reflect_camera_ = nullptr;
 
   // The list of reflective renderables and their corresponding render targets.
+  bool reflections_enabled_ = true;
   std::vector<Renderable*> reflectives_;
   std::vector<std::unique_ptr<RenderTarget>> reflect_targets_;
 };

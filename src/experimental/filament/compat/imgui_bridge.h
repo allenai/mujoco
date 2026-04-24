@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_IMGUI_BRIDGE_H_
-#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_IMGUI_BRIDGE_H_
+#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_IMGUI_BRIDGE_H_
+#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_IMGUI_BRIDGE_H_
 
 #include <cstdint>
 #include <memory>
@@ -21,18 +21,18 @@
 #include <vector>
 
 #include <imgui.h>
-#include <filament/Material.h>
 #include "experimental/filament/filament/mesh.h"
 #include "experimental/filament/filament/renderable.h"
 #include "experimental/filament/filament/scene_view.h"
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/filament/object_manager.h"
 
 namespace mujoco {
 
-// Manages Renderables that will be added a SceneView's UX scene.
+// Creates and manages a SceneView using data read from ImGui.
 class ImguiBridge {
  public:
-  ImguiBridge(SceneView* scene_view, filament::Material* ui_material);
+  explicit ImguiBridge(ObjectManager* object_mgr);
   ~ImguiBridge();
 
   // Prepares the Renderables using data from the current ImGui state. This
@@ -40,8 +40,8 @@ class ImguiBridge {
   // synced.
   void Update();
 
-  // Returns the current ImGui scale factor.
-  float GetScale() const;
+  // Returns the managed UX scene.
+  SceneView* GetSceneView() const { return scene_view_.get(); }
 
   // Uploads texture to be used with ImGui's Image and ImageButton functions.
   uintptr_t UploadImage(uintptr_t tex_id, const uint8_t* pixels, int width,
@@ -59,10 +59,10 @@ class ImguiBridge {
   void UpdateTexture(ImTextureData* data);
   void DestroyTexture(ImTextureData* data);
 
-  SceneView* scene_view_ = nullptr;
-  filament::Material* material_ = nullptr;
+  ObjectManager* object_mgr_ = nullptr;
+  std::unique_ptr<SceneView> scene_view_;
   std::vector<std::unique_ptr<Renderable>> renderables_;
-  std::vector<MeshPtr> meshes_;
+  std::vector<std::unique_ptr<Mesh>> meshes_;
   std::unordered_map<uintptr_t, std::unique_ptr<Texture>> textures_;
 };
 
@@ -72,4 +72,4 @@ void DrawTextAt(const char* text, float x, float y, float z);
 
 }  // namespace mujoco
 
-#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_IMGUI_BRIDGE_H_
+#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_IMGUI_BRIDGE_H_
