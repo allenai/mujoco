@@ -24,27 +24,39 @@
 #include <math/mat3.h>
 #include <math/vec3.h>
 #include <mujoco/mujoco.h>
-#include "experimental/filament/filament/material.h"
+#include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/mesh.h"
 #include "experimental/filament/filament/renderable.h"
-#include "experimental/filament/filament/object_manager.h"
 #include "experimental/filament/filament/scene_view.h"
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
 using filament::math::float3;
 using filament::math::mat3f;
 
-ImguiBridge::ImguiBridge(ObjectManager* object_mgr)
-    : object_mgr_(object_mgr) {
-  scene_view_ = std::make_unique<SceneView>(object_mgr_->GetEngine());
-  scene_view_->DisableShadows();
-  scene_view_->DisableReflections();
-  scene_view_->DisablePostProcessing();
+ImguiBridge::ImguiBridge(FilamentContext* ctx) : ctx_(ctx) {
+  mjrSceneParams params;
+  mjr_defaultSceneParams(&params);
+  params.enable_post_processing = false;
+  params.enable_reflections = false;
+  params.enable_shadows = false;
+  scene_view_ = std::make_unique<SceneView>(ctx_, params);
 }
 
-ImguiBridge::~ImguiBridge() { PrepareRenderables(0); }
+ImguiBridge::~ImguiBridge() {
+  PrepareRenderables(0);
+
+  // Destroy all textures tracked by ImGui.
+  if (ImGui::GetCurrentContext()) {
+    for (ImTextureData* tex : ImGui::GetPlatformIO().Textures) {
+      if (tex->Status != ImTextureStatus_Destroyed) {
+        DestroyTexture(tex);
+      }
+    }
+  }
+}
 
 uintptr_t ImguiBridge::UploadImage(uintptr_t tex_id, const uint8_t* pixels,
                                    int width, int height, int bpp) {
@@ -62,7 +74,7 @@ uintptr_t ImguiBridge::UploadImage(uintptr_t tex_id, const uint8_t* pixels,
 
   // Assign a new texture ID.
   if (tex_id == 0) {
-    tex_id = textures_.size() + 1;
+    tex_id = next_tex_id_++;
   }
 
   std::unique_ptr<Texture>& texture = textures_[tex_id];
@@ -78,7 +90,7 @@ uintptr_t ImguiBridge::UploadImage(uintptr_t tex_id, const uint8_t* pixels,
     config.target = mjTEXTURE_2D;
     config.format = bpp == 4 ? mjPIXEL_FORMAT_RGBA8 : mjPIXEL_FORMAT_RGB8;
     config.color_space = mjCOLORSPACE_LINEAR;
-    texture = std::make_unique<Texture>(scene_view_->GetEngine(), config);
+    texture = std::make_unique<Texture>(ctx_, config);
   }
 
   // Create a copy of the image to pass it to filament as we don't know the
@@ -113,9 +125,8 @@ void ImguiBridge::CreateTexture(ImTextureData* data) {
   config.format = mjPIXEL_FORMAT_RGBA8;
   config.color_space = mjCOLORSPACE_LINEAR;
 
-  const uintptr_t tex_id = textures_.size() + 1;
-  textures_[tex_id] =
-      std::make_unique<Texture>(scene_view_->GetEngine(), config);
+  const uintptr_t tex_id = next_tex_id_++;
+  textures_[tex_id] = std::make_unique<Texture>(ctx_, config);
   data->SetTexID((ImTextureID)tex_id);
   UpdateTexture(data);
 }
@@ -183,22 +194,10 @@ void ImguiBridge::Update() {
 
   if (commands->Textures != nullptr) {
     for (ImTextureData* tex : *commands->Textures) {
-      if (tex->Status == ImTextureStatus_OK) {
-        // ImGui's lifecycle is independent of the filament context lifecycle.
-        // As such, it is possible to destroy and create a new filament context
-        // while ImGui is still expecting the "OK" textures to work. In this
-        // case, we simply recreate the texture.
-        if (textures_.find(tex->TexID) == textures_.end()) {
-          CreateTexture(tex);
-        }
-      } else if (tex->Status == ImTextureStatus_WantCreate) {
+      if (tex->Status == ImTextureStatus_WantCreate) {
         CreateTexture(tex);
       } else if (tex->Status == ImTextureStatus_WantUpdates) {
-        if (textures_.find(tex->TexID) == textures_.end()) {
-          CreateTexture(tex);
-        } else {
-          UpdateTexture(tex);
-        }
+        UpdateTexture(tex);
       } else if (tex->Status == ImTextureStatus_WantDestroy &&
                  tex->UnusedFrames > 0) {
         DestroyTexture(tex);
@@ -232,9 +231,9 @@ void ImguiBridge::Update() {
     data.nvertices = cmds->VtxBuffer.Size;
     data.nindices = cmds->IdxBuffer.Size;
     data.indices = cmds->IdxBuffer.Data;
-    data.index_type = mjINDEX_TYPE_USHORT;
+    data.index_type = mjINDEX_TYPE_U16;
     data.primitive_type = mjMESH_PRIMITIVE_TYPE_TRIANGLES;
-    meshes_.push_back(std::make_unique<Mesh>(scene_view_->GetEngine(), data));
+    meshes_.push_back(std::make_unique<Mesh>(ctx_, data));
 
     const Mesh* mesh = meshes_.back().get();
 
@@ -280,8 +279,8 @@ void ImguiBridge::PrepareRenderables(int count) {
     mjrRenderableParams params;
     mjr_defaultRenderableParams(&params);
     params.shading_model = mjSHADING_MODEL_UX;
-    auto& r = renderables_.emplace_back(
-        std::make_unique<Renderable>(object_mgr_, params));
+    auto& r =
+        renderables_.emplace_back(std::make_unique<Renderable>(ctx_, params));
     r->SetCastShadows(false);
     r->SetReceiveShadows(false);
     r->SetBlendOrder(static_cast<std::uint16_t>(renderables_.size()));

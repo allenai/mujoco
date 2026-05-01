@@ -30,7 +30,6 @@
 #include <filament/Skybox.h>
 #include <filament/Texture.h>
 #include <mujoco/mujoco.h>
-#include "experimental/filament/filament/texture.h"
 #include "user/user_resource.h"
 
 #ifdef __linux__

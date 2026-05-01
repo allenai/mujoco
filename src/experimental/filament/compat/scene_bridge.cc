@@ -19,15 +19,7 @@
 #include <string_view>
 #include <utility>
 
-#include <filament/ColorGrading.h>
-#include <filament/IndirectLight.h>
-#include <filament/LightManager.h>
-#include <filament/Material.h>
 #include <filament/Options.h>
-#include <filament/Renderer.h>
-#include <filament/RenderableManager.h>
-#include <filament/RenderTarget.h>
-#include <filament/Skybox.h>
 #include <filament/View.h>
 #include <math/TMatHelpers.h>
 #include <math/mat4.h>
@@ -40,6 +32,7 @@
 #include "experimental/filament/compat/model_objects.h"
 #include "experimental/filament/compat/scene_geom_util.h"
 #include "experimental/filament/filament/color_grading_options.h"
+#include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/light.h"
 #include "experimental/filament/filament/math_util.h"
 #include "experimental/filament/filament/model_util.h"
@@ -47,6 +40,7 @@
 #include "experimental/filament/filament/renderable.h"
 #include "experimental/filament/filament/scene_view.h"
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
@@ -56,12 +50,13 @@ using filament::math::mat3;
 using filament::math::mat4;
 
 static std::unique_ptr<Texture> CreateFallbackIndirectLightTexture(
-    ObjectManager* object_mgr, std::string_view filename = "") {
+    FilamentContext* ctx, std::string_view filename = "") {
   if (filename.empty()) {
     filename = ObjectManager::kDefaultEnvironmentLight;
   }
 
-  std::unique_ptr<ObjectManager::Asset> asset = object_mgr->LoadAsset(filename);
+  std::unique_ptr<ObjectManager::Asset> asset =
+      ctx->GetObjectManager()->LoadAsset(filename);
 
   mjrTextureConfig config;
   mjr_defaultTextureConfig(&config);
@@ -71,7 +66,7 @@ static std::unique_ptr<Texture> CreateFallbackIndirectLightTexture(
   config.format = mjPIXEL_FORMAT_KTX;
   config.color_space = mjCOLORSPACE_AUTO;
 
-  auto texture = std::make_unique<Texture>(object_mgr->GetEngine(), config);
+  auto texture = std::make_unique<Texture>(ctx, config);
 
   mjrTextureData payload;
   mjr_defaultTextureData(&payload);
@@ -86,23 +81,42 @@ static std::unique_ptr<Texture> CreateFallbackIndirectLightTexture(
   return texture;
 }
 
-SceneBridge::SceneBridge(ObjectManager* object_mgr, const mjModel* model)
-    : object_mgr_(object_mgr) {
-  scene_view_ = std::make_unique<SceneView>(object_mgr_->GetEngine());
-  model_objects_ =
-      std::make_unique<ModelObjects>(model, object_mgr_->GetEngine());
+SceneBridge::SceneBridge(FilamentContext* ctx, const mjModel* model)
+    : ctx_(ctx) {
+  mjrSceneParams params;
+  mjr_defaultSceneParams(&params);
+  scene_view_ = std::make_unique<SceneView>(ctx_, params);
+  model_objects_ = std::make_unique<ModelObjects>(model, ctx_);
 
   // Configure options for the normal view.
   auto cg = scene_view_->GetColorGradingOptions();
-  cg.exposure = ReadElement(model, "filament.out.exposure", cg.exposure);
-  cg.contrast = ReadElement(model, "filament.out.contrast", cg.contrast);
-  cg.vibrance = ReadElement(model, "filament.out.vibrance", cg.vibrance);
-  cg.saturation = ReadElement(model, "filament.out.saturation", cg.saturation);
-  cg.temperature = ReadElement(model, "filament.out.temperature", cg.temperature);
-  cg.tint = ReadElement(model, "filament.out.tint", cg.tint);
+  cg.exposure = ReadElement(model, "filament.cg.exposure", cg.exposure);
+  cg.contrast = ReadElement(model, "filament.cg.contrast", cg.contrast);
+  cg.vibrance = ReadElement(model, "filament.cg.vibrance", cg.vibrance);
+  cg.saturation = ReadElement(model, "filament.cg.saturation", cg.saturation);
+  cg.temperature =
+      ReadElement(model, "filament.cg.temperature", cg.temperature);
+  cg.tint = ReadElement(model, "filament.cg.tint", cg.tint);
+  cg.gamut_mapping =
+      ReadElement(model, "filament.cg.gamut_mapping", cg.gamut_mapping);
+  cg.luminance_scaling =
+      ReadElement(model, "filament.cg.luminance_scaling", cg.luminance_scaling);
+  cg.slope = ReadElement(model, "filament.cg.slope", cg.slope);
+  cg.offset = ReadElement(model, "filament.cg.offset", cg.offset);
+  cg.power = ReadElement(model, "filament.cg.power", cg.power);
+  cg.shadow_gamma =
+      ReadElement(model, "filament.cg.shadow_gamma", cg.shadow_gamma);
+  cg.mid_point = ReadElement(model, "filament.cg.mid_point", cg.mid_point);
+  cg.highlight_scale =
+      ReadElement(model, "filament.cg.highlight_scale", cg.highlight_scale);
+  cg.shadows = ReadElement(model, "filament.cg.shadows", cg.shadows);
+  cg.midtones = ReadElement(model, "filament.cg.midtones", cg.midtones);
+  cg.highlights = ReadElement(model, "filament.cg.highlights", cg.highlights);
+  cg.tonal_ranges =
+      ReadElement(model, "filament.cg.tonal_ranges", cg.tonal_ranges);
 
   auto tone_mapping =
-      ReadElement<std::string_view>(model, "filament.out.tone_mapping");
+      ReadElement<std::string_view>(model, "filament.cg.tone_mapping");
   if (tone_mapping == "aces") {
     cg.tone_mapper = ToneMapperType::kACES;
   } else if (tone_mapping == "aces_legacy") {
@@ -121,11 +135,27 @@ SceneBridge::SceneBridge(ObjectManager* object_mgr, const mjModel* model)
   ao.enabled = ReadElement(model, "filament.ao.enabled", true);
   ao.bentNormals = ReadElement(model, "filament.ao.bent_normals", false);
   ao.ssct.enabled = ReadElement(model, "filament.ao.ssct", ao.ssct.enabled);
-  ao.quality = filament::QualityLevel::ULTRA;
-  ao.lowPassFilter = filament::QualityLevel::ULTRA;
-  ao.upsampling = filament::QualityLevel::ULTRA;
-  ao.bilateralThreshold = 0.5f;
+  ao.quality =
+      ReadElement(model, "filament.ao.quality", filament::QualityLevel::ULTRA);
+  ao.lowPassFilter = ReadElement(model, "filament.ao.low_pass_filter",
+                                 filament::QualityLevel::ULTRA);
+  ao.upsampling = ReadElement(model, "filament.ao.upsampling",
+                              filament::QualityLevel::ULTRA);
+  ao.bilateralThreshold =
+      ReadElement(model, "filament.ao.bilateral_threshold", 0.5f);
   fview->setAmbientOcclusionOptions(ao);
+
+  auto bloom = fview->getBloomOptions();
+  bloom.enabled = ReadElement(model, "filament.bloom.enabled", bloom.enabled);
+  bloom.strength =
+      ReadElement(model, "filament.bloom.strength", bloom.strength);
+  bloom.dirtStrength =
+      ReadElement(model, "filament.bloom.dirt_strength", bloom.dirtStrength);
+  bloom.quality = ReadElement(model, "filament.bloom.quality", bloom.quality);
+  bloom.resolution =
+      ReadElement(model, "filament.bloom.resolution", bloom.resolution);
+  bloom.levels = ReadElement(model, "filament.bloom.levels", bloom.levels);
+  fview->setBloomOptions(bloom);
 
   auto msaa = fview->getMultiSampleAntiAliasingOptions();
   msaa.enabled = ReadElement(model, "filament.msaa.enabled", true);
@@ -203,15 +233,14 @@ void SceneBridge::SetEnvironmentLight(std::string_view filename,
     fallback_ibl_.reset();
   }
 
-  fallback_ibl_texture_ =
-      CreateFallbackIndirectLightTexture(object_mgr_, filename);
+  fallback_ibl_texture_ = CreateFallbackIndirectLightTexture(ctx_, filename);
 
   mjrLightParams params;
   mjr_defaultLightParams(&params);
   params.type = mjLIGHT_IMAGE;
   params.texture = fallback_ibl_texture_.get();
   params.intensity = intensity;
-  fallback_ibl_ = std::make_unique<Light>(object_mgr_->GetEngine(), params);
+  fallback_ibl_ = std::make_unique<Light>(ctx_, params);
   scene_view_->AddToScene(fallback_ibl_.get());
 }
 
@@ -224,7 +253,6 @@ std::optional<float3> SceneBridge::ClipFromWorld(const float3& pos) const{
 }
 
 void SceneBridge::PrepareLights() {
-  filament::Engine* engine = object_mgr_->GetEngine();
   const mjModel* model = model_objects_->GetModel();
 
   bool has_image_based_light = false;
@@ -238,7 +266,7 @@ void SceneBridge::PrepareLights() {
       params.type = mjLIGHT_IMAGE;
       params.texture = model_objects_->GetTexture(model->light_texid[i]);
       params.intensity = model->light_intensity[i];
-      auto light_obj = std::make_unique<Light>(engine, params);
+      auto light_obj = std::make_unique<Light>(ctx_, params);
       scene_view_->AddToScene(light_obj.get());
       lights_.emplace_back(std::move(light_obj));
       has_image_based_light = true;
@@ -259,11 +287,8 @@ void SceneBridge::PrepareLights() {
         params.spot_cone_angle = model->light_cutoff[i];
       }
 
-      auto light_obj = std::make_unique<Light>(engine, params);
-#ifndef __EMSCRIPTEN__
-      // TODO(b/458045799): Re-enable when lights work on glinux and chromebook.
+      auto light_obj = std::make_unique<Light>(ctx_, params);
       scene_view_->AddToScene(light_obj.get());
-#endif
       lights_.emplace_back(std::move(light_obj));
     }
   }
@@ -282,23 +307,19 @@ void SceneBridge::PrepareLights() {
     params.cast_shadows = 0;
     params.intensity = 0.0f;
     params.spot_cone_angle = 90.0f;
-    auto light_obj = std::make_unique<Light>(engine, params);
-#ifndef __EMSCRIPTEN__
-    // TODO(b/458045799): Re-enable when lights work on glinux and chromebook.
+    auto light_obj = std::make_unique<Light>(ctx_, params);
     scene_view_->AddToScene(light_obj.get());
-#endif
     lights_.emplace_back(std::move(light_obj));
   }
 
   if (!has_image_based_light && total_light_intensity > 0.0f) {
     // Create a black indirect light to ensure that the skybox is
     // oriented to respect mujoco's Z-up convention.
-    filament::Engine* engine = object_mgr_->GetEngine();
     mjrLightParams params;
     mjr_defaultLightParams(&params);
     params.type = mjLIGHT_IMAGE;
     params.intensity = 10.0f;
-    fallback_ibl_ = std::make_unique<Light>(engine, params);
+    fallback_ibl_ = std::make_unique<Light>(ctx_, params);
     scene_view_->AddToScene(fallback_ibl_.get());
   }
 
@@ -307,14 +328,14 @@ void SceneBridge::PrepareLights() {
   // default environment light and set the light intensity ourselves.
   if (total_light_intensity == 0.0f) {
     // Create a fallback environment light.
-    fallback_ibl_texture_ = CreateFallbackIndirectLightTexture(object_mgr_);
+    fallback_ibl_texture_ = CreateFallbackIndirectLightTexture(ctx_);
 
     mjrLightParams params;
     mjr_defaultLightParams(&params);
     params.type = mjLIGHT_IMAGE;
     params.texture = fallback_ibl_texture_.get();
     params.intensity = fallback_environment_light_intensity_;
-    fallback_ibl_ = std::make_unique<Light>(engine, params);
+    fallback_ibl_ = std::make_unique<Light>(ctx_, params);
     scene_view_->AddToScene(fallback_ibl_.get());
 
     // Distribute the fallback scene light intensity among the lights.
@@ -328,14 +349,10 @@ void SceneBridge::PrepareLights() {
     }
   }
 
-  filament::Skybox* skybox = model_objects_->CreateSkybox();
-  if (skybox) {
-    scene_view_->AddToScene(skybox);
-  }
+  scene_view_->SetSkybox(model_objects_->GetSkyboxTexture());
 }
 
-filament::math::mat4 CalculateClipFromWorld(const mjrRect& viewport,
-                                            const mjvGLCamera& cam) {
+mat4 CalculateClipFromWorld(const mjrRect& viewport, const mjvGLCamera& cam) {
   const float3 cam_pos(cam.pos[0], cam.pos[1], cam.pos[2]);
   const float3 cam_fwd(cam.forward[0], cam.forward[1], cam.forward[2]);
   const float3 cam_up(cam.up[0], cam.up[1], cam.up[2]);
@@ -403,7 +420,7 @@ void SceneBridge::Update(const mjrRect& viewport, const mjvScene* scene) {
     }
 
     std::unique_ptr<Renderable> renderable = CreateGeomRenderable(
-        *geom, scene, object_mgr_, model_objects_.get(), headpos);
+        *geom, scene, ctx_, model_objects_.get(), headpos);
 
     scene_view_->AddToScene(renderable.get());
     renderables_.push_back(std::move(renderable));

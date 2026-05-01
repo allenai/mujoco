@@ -29,7 +29,7 @@
 namespace mujoco {
 
 // Subclass of the FilamentContext that implements the legacy mjr API.
-class MjrFilamentRenderer : public FilamentContext {
+class MjrFilamentRenderer {
  public:
   explicit MjrFilamentRenderer(const mjrFilamentConfig* config);
   ~MjrFilamentRenderer() = default;
@@ -65,6 +65,10 @@ class MjrFilamentRenderer : public FilamentContext {
   // Renders an ImGui window containing Filament-specific editor UI.
   void UpdateGui();
 
+  double GetFrameRate() const {
+    return filament_context_->GetFrameRate();
+  }
+
   MjrFilamentRenderer(const MjrFilamentRenderer&) = delete;
   MjrFilamentRenderer& operator=(const MjrFilamentRenderer&) = delete;
 
@@ -75,8 +79,9 @@ class MjrFilamentRenderer : public FilamentContext {
     OffScreenWithGui,
   };
 
+  std::unique_ptr<FilamentContext> filament_context_;
   FrameBufferMode mode_ = FrameBufferMode::Window;
-  RenderRequest render_requests_[2];
+  mjrRenderRequest render_requests_[2];
   std::unique_ptr<SceneBridge> scene_bridge_;
   std::unique_ptr<ImguiBridge> imgui_bridge_;
 };
