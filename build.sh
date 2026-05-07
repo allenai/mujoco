@@ -76,6 +76,9 @@ echo "Building ..."
 
 cmake --build build --config="${build_type}" --parallel ${njobs}
 
+echo "Copy compile_commands.json to the root of the project"
+cp build/compile_commands.json .
+
 echo "Installing to target dir ..."
 
 cmake --install build

@@ -41,10 +41,15 @@ if(WIN32)
     set(USE_STATIC_CRT OFF)
 endif()
 
+set(FILAMENT_PATCH_COMMAND
+  git apply --reject --whitespace=fix ${CMAKE_SOURCE_DIR}/cmake/abseil_fix_arch.patch
+)
+
 fetchpackage(
     PACKAGE_NAME  filament
     GIT_REPO      https://github.com/google/filament.git
     GIT_TAG       ${MUJOCO_DEP_VERSION_filament}
+    PATCH_COMMAND ${FILAMENT_PATCH_COMMAND}
 )
 
 set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_OLD})

@@ -1,0 +1,25 @@
+diff --git a/third_party/abseil/tnt/CMakeLists.txt b/third_party/abseil/tnt/CMakeLists.txt
+index 0e6959c0..2abec9b5 100644
+--- a/third_party/abseil/tnt/CMakeLists.txt
++++ b/third_party/abseil/tnt/CMakeLists.txt
+@@ -1,9 +1,17 @@
+ option(FILAMENT_USE_EXTERNAL_ABSL "Use find_package to locate an external Abseil dependency" OFF)
+ 
+-if (FILAMENT_USE_EXTERNAL_ABSL)
+-  find_package(absl CONFIG QUIET)
++if (DEFINED absl_SOURCE_DIR AND DEFINED absl_BINARY_DIR)
++  message(STATUS "abseil was already setup by another project")
+ else()
+-  add_subdirectory(../ "${CMAKE_CURRENT_BINARY_DIR}/abseil")
++  if (FILAMENT_USE_EXTERNAL_ABSL)
++    find_package(absl CONFIG QUIET)
++  else()
++    # This will skip checks that sometimes fail due to enviornment incompatibility on Linxu. Abseil can
++    # still be built without this.
++    set(ABSL_INTERNAL_AT_LEAST_CXX17 TRUE CACHE BOOL "Forced in wrapper")
++    set(ABSL_INTERNAL_AT_LEAST_CXX20 TRUE CACHE BOOL "Forced in wrapper")
++    add_subdirectory(../ "${CMAKE_CURRENT_BINARY_DIR}/abseil")
++  endif()
+ endif()
+ 
+ # To make Abseil easy for clients to link against, we create a dummy target just for installation
