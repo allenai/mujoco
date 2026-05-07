@@ -33,6 +33,7 @@ done
 if [[ "${build_filament}" == "ON" ]]; then
     export CC=/usr/bin/clang
     export CXX=/usr/bin/clang++
+    export CXXFLAGS=-stdlib=libc++
     build_simulate=OFF
 fi
 
