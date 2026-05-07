@@ -33,6 +33,7 @@
 #include <mujoco/mujoco.h>
 #include "experimental/filament/filament/builtins.h"
 #include "user/user_resource.h"
+#include "user/user_util.h"
 
 #ifdef __linux__
 #include <dlfcn.h>
@@ -82,8 +83,25 @@ static fs::path GetLibraryDirectory() {
 namespace mujoco {
 
 std::string ResolveFilamentAssetPath(const std::string& filename) {
-  std::string path = "filament:" + filename;
-  return path;
+  std::string prefix_dir = "";
+
+  auto envvar_install_dir = std::getenv("MUJOCO_INSTALL_DIR");
+  if (!envvar_install_dir) {
+    auto lib_dir = GetLibraryDirectory();
+    auto assets_dir = lib_dir / "filament" / "assets" / "data";
+    if (fs::is_directory(assets_dir)) {
+      prefix_dir = assets_dir.string() + "/";
+    }
+  }
+  else {
+    fs::path install_dir(envvar_install_dir);
+    auto assets_dir = install_dir / "filament" / "assets";
+    if (fs::is_directory(assets_dir)) {
+      prefix_dir = assets_dir.string() + "/";
+    }
+  }
+
+  return std::string(user::FilePath(prefix_dir, filename).c_str());
 }
 
 static filament::Material* LoadMaterial(filament::Engine* engine,
@@ -92,29 +110,9 @@ static filament::Material* LoadMaterial(filament::Engine* engine,
 
   mjResource* resource = nullptr;
   void* payload = nullptr;
-
   std::array<char, 1000> error;
 
-  auto envvar_install_dir = std::getenv("MUJOCO_INSTALL_DIR");
-  if (!envvar_install_dir) {
-    auto lib_dir = GetLibraryDirectory();
-    // std::cout << "Library dir: " << lib_dir.c_str() << std::endl;
-    auto assets_dir = lib_dir / "filament" / "assets" / "data";
-    // std::cout << "Assets dir: " << assets_dir.c_str() << std::endl;
-    if (fs::is_directory(assets_dir)) {
-      // std::cout << "Var assets_dir is a valid directory" << std::endl;
-      std::string str_assets_dir = assets_dir.string() + "/";
-      resource = mju_openResource(str_assets_dir.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
-    }
-    else {
-      // std::cout << "Falling back to default dir for filament assets" << std::endl;
-      resource = mju_openResource("", path.c_str(), nullptr, error.data(), error.size());
-    }
-  }
-  else {
-    std::string dir_path = std::string(envvar_install_dir) + "filament/assets/";
-    resource = mju_openResource(dir_path.c_str(), std::string(filename).c_str(), nullptr, error.data(), error.size());
-  }
+  resource = mju_openResource("", path.c_str(), nullptr, error.data(), error.size());
 
   if (!resource) {
     mju_error("Error while opening resource > %s", error.data());
