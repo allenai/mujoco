@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_BRIDGE_H_
-#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_BRIDGE_H_
+#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_BRIDGE_H_
+#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_BRIDGE_H_
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -24,27 +25,17 @@
 #include <math/vec3.h>
 #include <mujoco/mjvisualize.h>
 #include <mujoco/mujoco.h>
-#include "experimental/filament/filament/light.h"
-#include "experimental/filament/filament/material.h"
-#include "experimental/filament/filament/model_objects.h"
-#include "experimental/filament/filament/object_manager.h"
-#include "experimental/filament/filament/renderable.h"
-#include "experimental/filament/filament/scene_view.h"
+#include "experimental/filament/compat/model_objects.h"
+#include "experimental/filament/render_context_filament.h"
+#include "experimental/filament/render_context_filament_cpp.h"
 
 namespace mujoco {
 
 // Manages all mjModel data and updates a SceneView using an mjvScene.
 class SceneBridge {
  public:
-  SceneBridge(ObjectManager* object_mgr, const mjModel* model,
-              SceneView* scene_view);
+  SceneBridge(mjrfContext* ctx, const mjModel* model);
   ~SceneBridge();
-
-  // Updates the environment light using the KTX image at the given path.
-  void SetEnvironmentLight(std::string_view filename, float intensity);
-
-  // Updates the environment light to the fallback light
-  void SetFallbackEnvironmentLight(float intensity);
 
   // Updates the Entities in the filament Scene to match the current mjvScene
   // state.
@@ -55,7 +46,13 @@ class SceneBridge {
   void UploadTexture(const mjModel* model, int id);
   void UploadHeightField(const mjModel* model, int id);
 
-  SceneView* GetSceneView() const { return scene_view_; }
+  using DrawTextAtFn = std::function<void(const char*, float, float, float)>;
+  void SetDrawTextFunction(DrawTextAtFn fn);
+
+  // Returns the managed scene.
+  mjrScene* GetScene() const;
+  mjrCamera GetCamera() const;
+  mjrDrawMode GetDrawMode() const;
 
   SceneBridge(const SceneBridge&) = delete;
   SceneBridge& operator=(const SceneBridge&) = delete;
@@ -68,21 +65,24 @@ class SceneBridge {
   std::optional<filament::math::float3> ClipFromWorld(
       const filament::math::float3& pos) const;
 
-  SceneView* scene_view_ = nullptr;
-  ObjectManager* object_mgr_ = nullptr;
+  mjrfContext* ctx_ = nullptr;
   std::unique_ptr<ModelObjects> model_objects_;
-  std::unique_ptr<Light> fallback_ibl_;
-  std::vector<std::unique_ptr<Light>> lights_;
-  std::vector<std::unique_ptr<Renderable>> renderables_;
+  mjrCamera camera_;
+  mjrDrawMode draw_mode_ = mjDRAW_MODE_COLOR;
+  DrawTextAtFn draw_text_callback_;
+  UniquePtr<mjrScene> scene_{nullptr, nullptr};
+  UniquePtr<mjrLight> fallback_ibl_{nullptr, nullptr};
+  UniquePtr<mjrTexture> fallback_ibl_texture_{nullptr, nullptr};
+  std::vector<UniquePtr<mjrLight>> lights_;
+  std::vector<UniquePtr<mjrRenderable>> renderables_;
   filament::math::mat4 clip_from_world_;
   int default_shadow_map_size_ = 2048;
   float default_vsm_blur_width_ = 0.0f;
   float fallback_head_light_intensity_ = 0.f;
   float fallback_scene_light_intensity_ = 80'000.f;
   float fallback_environment_light_intensity_ = 5'000.f;
-  Material::Textures fallback_textures_;
 };
 
 }  // namespace mujoco
 
-#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_BRIDGE_H_
+#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_BRIDGE_H_

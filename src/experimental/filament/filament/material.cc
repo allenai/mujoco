@@ -19,99 +19,56 @@
 #include <filament/MaterialInstance.h>
 #include <filament/RenderableManager.h>
 #include <filament/TextureSampler.h>
+#include <mujoco/mujoco.h>
+#include "experimental/filament/filament_util.h"
+#include "experimental/filament/filament/object_manager.h"
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
-Material::Material(filament::Engine* engine)
-    : engine_(engine) {
-}
-
-Material::~Material() noexcept {
-  for (int i = 0; i < kNumDrawModes; ++i) {
-    if (instances_[i]) {
-      engine_->destroy(instances_[i]);
-    }
-  }
-}
-
-void Material::SetMaterial(DrawMode mode, filament::Material* material) {
-  if (instances_[mode]) {
-    const filament::Material* current_material =
-        instances_[mode]->getMaterial();
-    if (current_material == material) {
-      return;
-    }
-
-    engine_->destroy(instances_[mode]);
-    instances_[mode] = nullptr;
-  }
-  if (material) {
-    instances_[mode] = material->createInstance();
-    UpdateMaterialInstances();
-  }
-}
-
-void Material::UpdateParams(const Params& params) {
-  params_ = params;
-  UpdateMaterialInstances();
-}
-
-void Material::UpdateTextures(const Textures& textures) {
-  textures_ = textures;
-  UpdateMaterialInstances();
-}
-
-void Material::SetFallbackTextures(const Textures* fallback_textures) {
-  fallback_textures_ = fallback_textures;
-}
-
-void Material::UpdateMaterialInstances() {
-  filament::MaterialInstance* instance = instances_[DrawMode::kNormal];
-  if (instance == nullptr) {
-    return;
+void UpdateMaterialInstance(filament::MaterialInstance* instance,
+                            const mjrMaterial& material,
+                            ObjectManager* object_mgr) {
+  if (material.scissor[2] != 0 && material.scissor[3] != 0) {
+    instance->setScissor(material.scissor[0], material.scissor[1],
+                         material.scissor[2], material.scissor[3]);
   }
 
-  if (params_.scissor[2] != 0 && params_.scissor[3] != 0) {
-    instance->setScissor(params_.scissor[0], params_.scissor[1],
-                         params_.scissor[2], params_.scissor[3]);
-  }
-
-  const filament::Material* material = instance->getMaterial();
-  if (material->hasParameter("BaseColorFactor")) {
+  const filament::Material* fmaterial = instance->getMaterial();
+  if (fmaterial->hasParameter("BaseColorFactor")) {
     instance->setParameter("BaseColorFactor", filament::RgbaType::sRGB,
-                           params_.color);
+                           ReadFloat4(material.color));
   }
-  if (material->hasParameter("EmissiveFactor")) {
-    instance->setParameter("EmissiveFactor", params_.emissive);
+  if (fmaterial->hasParameter("SegmentationColor")) {
+    instance->setParameter("SegmentationColor", filament::RgbaType::LINEAR,
+                           ReadFloat4(material.segmentation_color));
   }
-  if (material->hasParameter("SpecularFactor")) {
-    instance->setParameter("SpecularFactor", params_.specular);
+  if (fmaterial->hasParameter("EmissiveFactor")) {
+    instance->setParameter("EmissiveFactor", material.emissive);
   }
-  if (material->hasParameter("GlossinessFactor")) {
-    instance->setParameter("GlossinessFactor", params_.glossiness);
+  if (fmaterial->hasParameter("SpecularFactor")) {
+    instance->setParameter("SpecularFactor", material.specular);
   }
-  if (material->hasParameter("MetallicFactor")) {
+  if (fmaterial->hasParameter("GlossinessFactor")) {
+    instance->setParameter("GlossinessFactor", material.glossiness);
+  }
+  if (fmaterial->hasParameter("MetallicFactor")) {
     instance->setParameter("MetallicFactor",
-                           params_.metallic >= 0 ? params_.metallic : 1.0f);
+                           material.metallic >= 0 ? material.metallic : 1.0f);
   }
-  if (material->hasParameter("RoughnessFactor")) {
+  if (fmaterial->hasParameter("RoughnessFactor")) {
     instance->setParameter("RoughnessFactor",
-                           params_.roughness >= 0 ? params_.roughness : 1.0f);
+                           material.roughness >= 0 ? material.roughness : 1.0f);
   }
-  if (material->hasParameter("UvScale")) {
-    instance->setParameter("UvScale", params_.uv_scale);
+  if (fmaterial->hasParameter("UvScale")) {
+    instance->setParameter("UvScale", ReadFloat3(material.uv_scale));
   }
-  if (material->hasParameter("UvOffset")) {
-    instance->setParameter("UvOffset", params_.uv_offset);
+  if (fmaterial->hasParameter("UvOffset")) {
+    instance->setParameter("UvOffset", ReadFloat3(material.uv_offset));
   }
-  if (material->hasParameter("Reflectance")) {
-    instance->setParameter("Reflectance", params_.reflectance);
-  }
-
-  if (instances_[DrawMode::kSegmentation]) {
-    instances_[DrawMode::kSegmentation]->setParameter(
-        "BaseColorFactor", params_.segmentation_color);
+  if (fmaterial->hasParameter("Reflectance")) {
+    instance->setParameter("Reflectance", material.reflectance);
   }
 
   // All textures use the same default sampler.
@@ -123,33 +80,27 @@ void Material::UpdateMaterialInstances() {
   sampler.setMinFilter(
       filament::TextureSampler::MinFilter::LINEAR_MIPMAP_LINEAR);
 
-  auto TrySetTexture = [&](const char* name, const Texture* texture,
-                           const Texture* fallback) {
-    if (material->hasParameter(name)) {
-      if (texture) {
-        instance->setParameter(name, texture->GetFilamentTexture(), sampler);
-      } else if (fallback) {
-        instance->setParameter(name, fallback->GetFilamentTexture(), sampler);
+  auto TrySetTexture = [&](const char* name, const mjrTexture* texture,
+                           mjtTextureRole role) {
+    if (fmaterial->hasParameter(name)) {
+      if (texture != nullptr) {
+        instance->setParameter(
+            name, Texture::downcast(texture)->GetFilamentTexture(), sampler);
+      } else {
+        instance->setParameter(name, object_mgr->GetFallbackTexture(role),
+                               sampler);
       }
     }
   };
 
-  TrySetTexture("BaseColor", textures_.color,
-                fallback_textures_ ? fallback_textures_->color : nullptr);
-  TrySetTexture("Normal", textures_.normal,
-                fallback_textures_ ? fallback_textures_->normal : nullptr);
-  TrySetTexture("Metallic", textures_.metallic,
-                fallback_textures_ ? fallback_textures_->metallic : nullptr);
-  TrySetTexture("Roughness", textures_.roughness,
-                fallback_textures_ ? fallback_textures_->roughness : nullptr);
-  TrySetTexture("Occlusion", textures_.occlusion,
-                fallback_textures_ ? fallback_textures_->occlusion : nullptr);
-  TrySetTexture("ORM", textures_.orm,
-                fallback_textures_ ? fallback_textures_->orm : nullptr);
-  TrySetTexture("Emissive", textures_.emissive,
-                fallback_textures_ ? fallback_textures_->emissive : nullptr);
-  TrySetTexture("Reflection", textures_.reflection,
-                fallback_textures_ ? fallback_textures_->reflection : nullptr);
+  TrySetTexture("BaseColor", material.color_texture, mjTEXROLE_RGB);
+  TrySetTexture("Normal", material.normal_texture, mjTEXROLE_NORMAL);
+  TrySetTexture("Metallic", material.metallic_texture, mjTEXROLE_METALLIC);
+  TrySetTexture("Roughness", material.roughness_texture, mjTEXROLE_ROUGHNESS);
+  TrySetTexture("Occlusion", material.occlusion_texture, mjTEXROLE_OCCLUSION);
+  TrySetTexture("ORM", material.orm_texture, mjTEXROLE_ORM);
+  TrySetTexture("Emissive", material.emissive_texture, mjTEXROLE_EMISSIVE);
+  TrySetTexture("Reflection", material.reflection_texture, mjTEXROLE_USER);
 }
 
 }  // namespace mujoco

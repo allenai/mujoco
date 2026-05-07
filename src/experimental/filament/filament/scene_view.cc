@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string_view>
 
 #include <filament/ColorGrading.h>
 #include <filament/LightManager.h>
@@ -34,31 +35,25 @@
 #include <math/mat4.h>
 #include <math/mathfwd.h>
 #include <math/scalar.h>
+#include <math/TVecHelpers.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
-#include <math/TVecHelpers.h>
 #include <utils/EntityManager.h>
 #include <mujoco/mujoco.h>
+#include "experimental/filament/filament_util.h"
 #include "experimental/filament/filament/color_grading_options.h"
+#include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/light.h"
-#include "experimental/filament/filament/material.h"
-#include "experimental/filament/filament/math_util.h"
 #include "experimental/filament/filament/render_target.h"
 #include "experimental/filament/filament/renderable.h"
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
 using filament::math::float3;
 using filament::math::float4;
 using filament::math::mat4;
-
-static constexpr int kNormalIndex =
-    static_cast<int>(Material::DrawMode::kNormal);
-static constexpr int kDepthIndex =
-    static_cast<int>(Material::DrawMode::kDepth);
-static constexpr int kSegmentIndex =
-    static_cast<int>(Material::DrawMode::kSegmentation);
 
 static filament::ColorGrading::Builder ToBuilder(
     const ColorGradingOptions& opts) {
@@ -80,7 +75,7 @@ static filament::ColorGrading::Builder ToBuilder(
       .curves(opts.shadow_gamma, opts.mid_point, opts.highlight_scale);
 }
 
-static void SetupCamera(const mjvGLCamera& cam,
+static void SetupCamera(const mjrCamera& cam,
                         const filament::Viewport& viewport,
                         filament::Camera* camera) {
   const filament::Camera::Projection type =
@@ -127,71 +122,74 @@ static void SetupReflectionCamera(const mat4& surface_xform,
   reflection_camera->setCustomProjection(oblique, near, far);
 }
 
-SceneView::SceneView(filament::Engine* engine) : engine_(engine) {
+SceneView::SceneView(FilamentContext* ctx, const mjrSceneParams& params)
+    : ctx_(ctx) {
+  filament::Engine* engine = ctx_->GetEngine();
   scene_ = engine->createScene();
-  ux_scene_ = engine->createScene();
   camera_ = engine->createCamera(utils::EntityManager::get().create());
-  ux_camera_ = engine->createCamera(utils::EntityManager::get().create());
   reflect_camera_ = engine->createCamera(utils::EntityManager::get().create());
 
   for (auto& view : views_) {
     view = engine->createView();
     view->setScene(scene_);
     view->setCamera(camera_);
-    view->setVisibleLayers(0xff, mjCAT_ALL);
+    view->setVisibleLayers(0xff, params.layer_mask);
   }
-
-  ux_view_ = engine->createView();
-  ux_view_->setScene(ux_scene_);
-  ux_view_->setCamera(ux_camera_);
-  ux_view_->setPostProcessingEnabled(false);
-  ux_view_->setShadowingEnabled(false);
 
   reflect_view_ = engine->createView();
   reflect_view_->setScene(scene_);
   reflect_view_->setCamera(reflect_camera_);
   reflect_view_->setShadowingEnabled(false);
   reflect_view_->setPostProcessingEnabled(false);
-  reflect_view_->setVisibleLayers(0xff, mjCAT_DYNAMIC | mjCAT_STATIC);
+  reflect_view_->setVisibleLayers(0xff, params.reflection_layer_mask);
 
   // Disable post processing for the depth and segmentation views to preserve
   // the values.
-  views_[kDepthIndex]->setPostProcessingEnabled(false);
-  views_[kSegmentIndex]->setPostProcessingEnabled(false);
+  views_[mjDRAW_MODE_DEPTH]->setPostProcessingEnabled(false);
+  views_[mjDRAW_MODE_SEGMENTATION]->setPostProcessingEnabled(false);
 
   // Rotate the fog to align with mujoco's +Z up space.
-  auto fog = views_[kNormalIndex]->getFogEntity();
+  auto fog = views_[mjDRAW_MODE_COLOR]->getFogEntity();
   auto& tm = engine->getTransformManager();
   tm.create(fog);
   tm.setTransform(tm.getInstance(fog),
                   mat4::rotation(filament::math::f::PI / 2, float3{-1, 0, 0}));
+
+  if (!params.enable_post_processing) {
+    DisablePostProcessing();
+  }
+  if (!params.enable_reflections) {
+    DisableReflections();
+  }
+  if (!params.enable_shadows) {
+    DisableShadows();
+  }
 }
 
 SceneView::~SceneView() {
+  filament::Engine* engine = ctx_->GetEngine();
+  if (skybox_) {
+    scene_->setSkybox(nullptr);
+    engine->destroy(skybox_);
+  }
   for (auto& light : lights_) {
     light->RemoveFromScene(scene_);
   }
   for (auto& renderable : renderables_) {
     renderable->RemoveFromScene(scene_);
   }
-  for (auto& renderable : ux_renderables_) {
-    renderable->RemoveFromScene(ux_scene_);
-  }
   lights_.clear();
   renderables_.clear();
   reflect_targets_.clear();
-  engine_->destroyCameraComponent(reflect_camera_->getEntity());
-  engine_->destroy(reflect_view_);
-  engine_->destroyCameraComponent(ux_camera_->getEntity());
-  engine_->destroy(ux_view_);
-  engine_->destroyCameraComponent(camera_->getEntity());
+  engine->destroyCameraComponent(reflect_camera_->getEntity());
+  engine->destroy(reflect_view_);
+  engine->destroyCameraComponent(camera_->getEntity());
   if (color_grading_) {
-    engine_->destroy(color_grading_);
+    engine->destroy(color_grading_);
   }
-  engine_->destroy(scene_);
-  engine_->destroy(ux_scene_);
+  engine->destroy(scene_);
   for (auto& view : views_) {
-    engine_->destroy(view);
+    engine->destroy(view);
   }
 }
 
@@ -210,7 +208,7 @@ void SceneView::RemoveFromScene(Light* light) {
 void SceneView::AddToScene(Renderable* renderable) {
   if (renderables_.insert(renderable).second) {
     renderable->AddToScene(scene_);
-    if (renderable->GetMaterial().GetParams().reflective) {
+    if (renderable->GetMaterial().reflective) {
       AddReflectiveRenderable(renderable);
     }
   }
@@ -226,27 +224,17 @@ void SceneView::RemoveFromScene(Renderable* renderable) {
   }
 }
 
-void SceneView::AddToUxScene(Renderable* renderable) {
-  if (ux_renderables_.insert(renderable).second) {
-    renderable->AddToScene(ux_scene_);
-  }
-}
-
-void SceneView::RemoveFromUxScene(Renderable* renderable) {
-  if (ux_renderables_.erase(renderable)) {
-    renderable->RemoveFromScene(ux_scene_);
-  }
-}
-
-void SceneView::AddToScene(filament::Skybox* skybox) {
-  skybox_ = skybox;
-  scene_->setSkybox(skybox);
-}
-
-void SceneView::RemoveFromScene(filament::Skybox* skybox) {
-  if (skybox_ == skybox) {
-    skybox_ = nullptr;
+void SceneView::SetSkybox(const Texture* skybox_texture) {
+  if (skybox_) {
     scene_->setSkybox(nullptr);
+    GetEngine()->destroy(skybox_);
+    skybox_ = nullptr;
+  }
+  if (skybox_texture) {
+    filament::Skybox::Builder builder;
+    builder.environment(skybox_texture->GetFilamentTexture());
+    skybox_ = builder.build(*GetEngine());
+    scene_->setSkybox(skybox_);
   }
 }
 
@@ -257,14 +245,12 @@ void SceneView::Render(filament::Renderer* renderer,
   for (auto& view : views_) {
     view->setViewport(viewport);
   }
-  ux_view_->setViewport(viewport);
   reflect_view_->setViewport(viewport);
 
   SetupCamera(request.camera, viewport, camera_);
 
   for (auto& iter : renderables_) {
-    Material& material = iter->GetMaterial();
-    iter->SetMaterialInstance(material.GetMaterialInstance(request.draw_mode));
+    iter->SetDrawMode(request.draw_mode);
   }
 
   filament::View* view = views_[static_cast<int>(request.draw_mode)];
@@ -279,14 +265,12 @@ void SceneView::Render(filament::Renderer* renderer,
   }
 
   // Render reflection passes.
-  if (request.draw_mode == DrawMode::kNormal) {
-    filament::TransformManager& tm = engine_->getTransformManager();
+  if (request.draw_mode == mjDRAW_MODE_COLOR && reflections_enabled_) {
     for (size_t i = 0; i < reflectives_.size(); ++i) {
       Renderable* renderable = reflectives_[i];
 
       // We assume the 0th entity is the reflective entity.
-      const utils::Entity entity = (*renderable)[0];
-      const mat4 transform(tm.getTransform(tm.getInstance(entity)));
+      mat4 transform(renderable->GetTransform());
       SetupReflectionCamera(transform, camera_, reflect_camera_);
 
       // Hide reflective surface from its own reflection pass.
@@ -306,16 +290,6 @@ void SceneView::Render(filament::Renderer* renderer,
   renderer->render(view);
   view->setRenderTarget(nullptr);
 
-  if (request.enable_ux) {
-    ux_camera_->setProjection(filament::Camera::Projection::ORTHO, 0.0f,
-                              viewport.width / request.gui_scale,
-                              viewport.height / request.gui_scale, 0.0f, 0.0f,
-                              1.0f);
-    ux_view_->setRenderTarget(render_target);
-    renderer->render(ux_view_);
-    ux_view_->setRenderTarget(nullptr);
-  }
-
   if (request.target) {
     view->setMultiSampleAntiAliasingOptions(options);
   }
@@ -328,9 +302,13 @@ void SceneView::AddReflectiveRenderable(Renderable* renderable) {
   // Ensure we have the same number of render targets as we do reflective
   // renderables.
   while (reflect_targets_.size() < reflectives_.size()) {
-    reflect_targets_.push_back(std::make_unique<RenderTarget>(
-        engine_, RenderTargetTextureType::kReflectionColor,
-        RenderTargetTextureType::kDepth));
+    mjrRenderTargetConfig config;
+    mjr_defaultRenderTargetConfig(&config);
+
+    config.color_format = mjPIXEL_FORMAT_RGBA8;
+    config.depth_format = mjPIXEL_FORMAT_DEPTH32F;
+    reflect_targets_.push_back(
+        std::make_unique<RenderTarget>(ctx_->GetEngine(), config));
   }
 
   // Prepare a render target for the reflective renderable.
@@ -338,31 +316,196 @@ void SceneView::AddReflectiveRenderable(Renderable* renderable) {
   auto& target = reflect_targets_[index];
   target->Prepare(viewport.width, viewport.height);
 
-  Material& material = renderable->GetMaterial();
-  Material::Textures textures = material.GetTextures();
-  textures.reflection = target->GetColorTexture();
-  material.UpdateTextures(textures);
+  if (reflections_enabled_) {
+    mjrMaterial material = renderable->GetMaterial();
+    material.reflection_texture = target->GetColorTexture();
+    renderable->UpdateMaterial(material);
+  }
 }
 
 void SceneView::SetColorGradingOptions(const ColorGradingOptions& opts) {
   auto tone_mapper = CreateToneMapper(opts.tone_mapper);
   auto color_grading = ToBuilder(color_grading_options_)
                            .toneMapper(tone_mapper.get())
-                           .build(*engine_);
-  views_[kNormalIndex]->setColorGrading(color_grading);
+                           .build(*GetEngine());
+  views_[mjDRAW_MODE_COLOR]->setColorGrading(color_grading);
   if (color_grading_) {
-    engine_->destroy(color_grading_);
+    GetEngine()->destroy(color_grading_);
   }
   color_grading_ = color_grading;
   color_grading_options_ = opts;
 }
 
+void SceneView::EnableShadows() {
+  views_[mjDRAW_MODE_COLOR]->setShadowingEnabled(true);
+}
+
+void SceneView::DisableShadows() {
+  views_[mjDRAW_MODE_COLOR]->setShadowingEnabled(false);
+}
+
+void SceneView::EnableReflections() {
+  reflections_enabled_ = true;
+
+  for (int i = 0; i < reflectives_.size(); ++i) {
+    Renderable* renderable = reflectives_[i];
+    mjrMaterial material = renderable->GetMaterial();
+    material.reflection_texture = reflect_targets_[i]->GetColorTexture();
+    renderable->UpdateMaterial(material);
+  }
+}
+
+void SceneView::DisableReflections() {
+  reflections_enabled_ = false;
+  for (Renderable* renderable : reflectives_) {
+    mjrMaterial material = renderable->GetMaterial();
+    material.reflection_texture = nullptr;
+    renderable->UpdateMaterial(material);
+  }
+}
+
+void SceneView::EnablePostProcessing() {
+  views_[mjDRAW_MODE_COLOR]->setPostProcessingEnabled(true);
+}
+
+void SceneView::DisablePostProcessing() {
+  views_[mjDRAW_MODE_COLOR]->setPostProcessingEnabled(false);
+}
+
 filament::View* SceneView::GetDefaultRenderView() {
-  return views_[kNormalIndex];
+  return views_[mjDRAW_MODE_COLOR];
 }
 
 ColorGradingOptions SceneView::GetColorGradingOptions() const {
   return color_grading_options_;
+}
+
+void SceneView::Configure(const mjModel* model) {
+  ctx_->SetClearColor(ReadElement(model, "filament.clearColor",
+                                  filament::math::float4(0, 0, 0, 1)));
+
+  filament::View* view = views_[mjDRAW_MODE_COLOR];
+
+  auto cg = color_grading_options_;
+  cg.exposure = ReadElement(model, "filament.cg.exposure", cg.exposure);
+  cg.contrast = ReadElement(model, "filament.cg.contrast", cg.contrast);
+  cg.vibrance = ReadElement(model, "filament.cg.vibrance", cg.vibrance);
+  cg.saturation = ReadElement(model, "filament.cg.saturation", cg.saturation);
+  cg.temperature =
+      ReadElement(model, "filament.cg.temperature", cg.temperature);
+  cg.tint = ReadElement(model, "filament.cg.tint", cg.tint);
+  cg.gamut_mapping =
+      ReadElement(model, "filament.cg.gamut_mapping", cg.gamut_mapping);
+  cg.luminance_scaling =
+      ReadElement(model, "filament.cg.luminance_scaling", cg.luminance_scaling);
+  cg.slope = ReadElement(model, "filament.cg.slope", cg.slope);
+  cg.offset = ReadElement(model, "filament.cg.offset", cg.offset);
+  cg.power = ReadElement(model, "filament.cg.power", cg.power);
+  cg.shadow_gamma =
+      ReadElement(model, "filament.cg.shadow_gamma", cg.shadow_gamma);
+  cg.mid_point = ReadElement(model, "filament.cg.mid_point", cg.mid_point);
+  cg.highlight_scale =
+      ReadElement(model, "filament.cg.highlight_scale", cg.highlight_scale);
+  cg.shadows = ReadElement(model, "filament.cg.shadows", cg.shadows);
+  cg.midtones = ReadElement(model, "filament.cg.midtones", cg.midtones);
+  cg.highlights = ReadElement(model, "filament.cg.highlights", cg.highlights);
+  cg.tonal_ranges =
+      ReadElement(model, "filament.cg.tonal_ranges", cg.tonal_ranges);
+
+  auto tone_mapping =
+      ReadElement<std::string_view>(model, "filament.cg.tone_mapping");
+  if (tone_mapping == "aces") {
+    cg.tone_mapper = ToneMapperType::kACES;
+  } else if (tone_mapping == "aces_legacy") {
+    cg.tone_mapper = ToneMapperType::kACESLegacy;
+  } else if (tone_mapping == "filmic") {
+    cg.tone_mapper = ToneMapperType::kFilmic;
+  } else if (tone_mapping == "linear") {
+    cg.tone_mapper = ToneMapperType::kLinear;
+  } else if (tone_mapping == "pbr_neutral") {
+    cg.tone_mapper = ToneMapperType::kPBRNeutral;
+  }
+  SetColorGradingOptions(cg);
+
+  auto ao = view->getAmbientOcclusionOptions();
+  ao.enabled = ReadElement(model, "filament.ao.enabled", true);
+  ao.bentNormals = ReadElement(model, "filament.ao.bent_normals", false);
+  ao.ssct.enabled = ReadElement(model, "filament.ao.ssct", ao.ssct.enabled);
+  ao.quality =
+      ReadElement(model, "filament.ao.quality", filament::QualityLevel::ULTRA);
+  ao.lowPassFilter = ReadElement(model, "filament.ao.low_pass_filter",
+                                 filament::QualityLevel::ULTRA);
+  ao.upsampling = ReadElement(model, "filament.ao.upsampling",
+                              filament::QualityLevel::ULTRA);
+  ao.bilateralThreshold =
+      ReadElement(model, "filament.ao.bilateral_threshold", 0.5f);
+  view->setAmbientOcclusionOptions(ao);
+
+  auto msaa = view->getMultiSampleAntiAliasingOptions();
+  msaa.enabled = ReadElement(model, "filament.msaa.enabled", true);
+  view->setMultiSampleAntiAliasingOptions(msaa);
+
+  auto shadow_type = view->getShadowType();
+  shadow_type = ReadElement(model, "filament.shadows.type", shadow_type);
+  view->setShadowType(shadow_type);
+
+  auto fog_opts = view->getFogOptions();
+  fog_opts.enabled =
+      ReadElement(model, "filament.fog.enabled", fog_opts.enabled);
+  fog_opts.color = ReadElement(model, "filament.fog.color", fog_opts.color);
+  fog_opts.distance = ReadElement(
+      model, "filament.fog.distance", fog_opts.distance);
+  fog_opts.density = ReadElement(
+      model, "filament.fog.density", fog_opts.density);
+  fog_opts.cutOffDistance = ReadElement(
+      model, "filament.fog.cutOffDistance", fog_opts.cutOffDistance);
+  fog_opts.maximumOpacity = ReadElement(
+      model, "filament.fog.maximumOpacity", fog_opts.maximumOpacity);
+  fog_opts.height = ReadElement(model, "filament.fog.height", fog_opts.height);
+  fog_opts.heightFalloff = ReadElement(
+      model, "filament.fog.heightFalloff", fog_opts.heightFalloff);
+  fog_opts.inScatteringStart = ReadElement(
+      model, "filament.fog.inScatteringStart", fog_opts.inScatteringStart);
+  fog_opts.inScatteringSize = ReadElement(
+      model, "filament.fog.inScatteringSize", fog_opts.inScatteringSize);
+  view->setFogOptions(fog_opts);
+
+  auto bloom = view->getBloomOptions();
+  bloom.enabled = ReadElement(model, "filament.bloom.enabled", bloom.enabled);
+  bloom.strength =
+      ReadElement(model, "filament.bloom.strength", bloom.strength);
+  bloom.dirtStrength =
+      ReadElement(model, "filament.bloom.dirt_strength", bloom.dirtStrength);
+  bloom.quality = ReadElement(model, "filament.bloom.quality", bloom.quality);
+  bloom.resolution =
+      ReadElement(model, "filament.bloom.resolution", bloom.resolution);
+  bloom.levels = ReadElement(model, "filament.bloom.levels", bloom.levels);
+  view->setBloomOptions(bloom);
+}
+
+void DoRender(filament::Renderer* renderer, const mjrRenderRequest& request) {
+  SceneView::RenderRequest scene_view_request;
+  scene_view_request.draw_mode = request.draw_mode;
+  scene_view_request.viewport = request.viewport;
+  scene_view_request.camera = request.camera;
+  SceneView* scene_view = SceneView::downcast(request.scene);
+  scene_view->Render(renderer, scene_view_request);
+}
+
+void DoReadPixels(filament::Renderer* renderer,
+                  const mjrRenderRequest& request,
+                  const mjrReadPixelsRequest& read_request) {
+  RenderTarget* render_target = RenderTarget::downcast(request.target);
+
+  SceneView::RenderRequest scene_view_request;
+  scene_view_request.draw_mode = request.draw_mode;
+  scene_view_request.viewport = request.viewport;
+  scene_view_request.camera = request.camera;
+  scene_view_request.target = render_target;
+  SceneView* scene_view = SceneView::downcast(request.scene);
+  scene_view->Render(renderer, scene_view_request);
+  render_target->ReadColorPixels(renderer, (uint8_t*)read_request.output,
+                                  read_request.num_bytes);
 }
 
 }  // namespace mujoco

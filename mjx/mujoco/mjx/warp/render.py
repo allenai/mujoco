@@ -48,7 +48,6 @@ _cb = mjwp_types.Callback(
     **{f.name: None for f in dataclasses.fields(mjwp_types.Callback) if f.init}
 )
 
-
 @ffi.format_args_for_warp
 def _render_shim(
     # Model
@@ -85,6 +84,7 @@ def _render_shim(
     rc_id: int,
     rgb: wp.array2d[wp.uint32],
     depth: wp.array2d[wp.float32],
+    seg: wp.array2d[wp.vec2i],
 ):
   _m.stat = _s
   _m.opt = _o
@@ -122,6 +122,7 @@ def _render_shim(
   render_context = _MJX_RENDER_CONTEXT_BUFFERS[(rc_id, wp.get_device().ordinal)]
   render_context.rgb_data = rgb
   render_context.depth_data = depth
+  render_context.seg_data = seg
   mjwarp.render(_m, _d, render_context)
 
 
@@ -130,10 +131,11 @@ def _render_jax_impl(m: types.Model, d: types.Data, ctx: RenderContextPytree):
   output_dims = {
       'rgb': render_ctx.rgb_data_shape,
       'depth': render_ctx.depth_data_shape,
+      'seg': render_ctx.seg_data_shape,
   }
   jf = ffi.jax_callable_variadic_tuple(
       _render_shim,
-      num_outputs=2,
+      num_outputs=3,
       output_dims=output_dims,
       vmap_method=None,
       in_out_argnames=set([]),
@@ -157,7 +159,7 @@ def _render_jax_impl(m: types.Model, d: types.Data, ctx: RenderContextPytree):
       has_side_effect=False,
   )
   out = jf(
-      d.qpos.shape[0],
+      render_ctx.nworld,
       m.cam_fovy,
       m.cam_intrinsic,
       m._impl.cam_projection,
@@ -207,4 +209,4 @@ def render_vmap(
     ctx: RenderContextPytree,
 ):
   out = render(m, d, ctx)
-  return out, [True, True]
+  return out, [True, True, True]

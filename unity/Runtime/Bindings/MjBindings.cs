@@ -113,7 +113,7 @@ public const int mjMAXLINEPNT = 1001;
 public const int mjMAXPLANEGRID = 200;
 public const bool THIRD_PARTY_MUJOCO_MJXMACRO_H_ = true;
 public const bool THIRD_PARTY_MUJOCO_MUJOCO_H_ = true;
-public const int mjVERSION_HEADER = 3007001;
+public const int mjVERSION_HEADER = 3008001;
 
 
 // ------------------------------------Enums------------------------------------
@@ -137,16 +137,16 @@ public enum mjtDisableBit : int{
   mjDSBL_AUTORESET = 65536,
   mjDSBL_NATIVECCD = 131072,
   mjDSBL_ISLAND = 262144,
-  mjNDISABLE = 19,
+  mjDSBL_MULTICCD = 524288,
+  mjNDISABLE = 20,
 }
 public enum mjtEnableBit : int{
   mjENBL_OVERRIDE = 1,
   mjENBL_ENERGY = 2,
   mjENBL_FWDINV = 4,
   mjENBL_INVDISCRETE = 8,
-  mjENBL_MULTICCD = 16,
-  mjENBL_SLEEP = 32,
-  mjNENABLE = 6,
+  mjENBL_SLEEP = 16,
+  mjNENABLE = 5,
 }
 public enum mjtJoint : int{
   mjJNT_FREE = 0,
@@ -963,6 +963,7 @@ public unsafe struct mjModel_ {
   public UInt64 nflexelem;
   public UInt64 nflexelemdata;
   public UInt64 nflexstiffness;
+  public UInt64 nflexbending;
   public UInt64 nflexelemedge;
   public UInt64 nflexshelldata;
   public UInt64 nflexevpair;
@@ -1200,6 +1201,8 @@ public unsafe struct mjModel_ {
   public int* flex_matid;
   public int* flex_group;
   public int* flex_interp;
+  public int* flex_bandwidth;
+  public int* flex_cellnum;
   public int* flex_nodeadr;
   public int* flex_nodenum;
   public int* flex_vertadr;
@@ -1211,6 +1214,7 @@ public unsafe struct mjModel_ {
   public int* flex_elemdataadr;
   public int* flex_stiffnessadr;
   public int* flex_elemedgeadr;
+  public int* flex_bendingadr;
   public int* flex_shellnum;
   public int* flex_shelldataadr;
   public int* flex_evpairadr;
@@ -6683,6 +6687,12 @@ public static unsafe extern int mj_addBufferVFS(void* vfs, [MarshalAs(UnmanagedT
 public static unsafe extern int mj_deleteFileVFS(void* vfs, [MarshalAs(UnmanagedType.LPStr)]string filename);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern int mj_containsBufferVFS(void* vfs, [MarshalAs(UnmanagedType.LPStr)]string name);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern int mj_containsFileVFS(void* vfs, [MarshalAs(UnmanagedType.LPStr)]string directory, [MarshalAs(UnmanagedType.LPStr)]string filename);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mj_deleteVFS(void* vfs);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
@@ -6948,6 +6958,9 @@ public static unsafe extern void mj_rne(mjModel_* m, mjData_* d, int flg_acc, do
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mj_rnePostConstraint(mjModel_* m, mjData_* d);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern int mj_maxContact(mjModel_* m, int g1, int g2, int has_margin);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mj_collision(mjModel_* m, mjData_* d);
@@ -7500,6 +7513,9 @@ public static unsafe extern int mju_dense2sparse(double* res, double* mat, int n
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mju_sparse2dense(double* res, double* mat, int nr, int nc, int* rownnz, int* rowadr, int* colind);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern void mju_sym2dense(double* res, double* mat, int n, int* rownnz, int* rowadr, int* colind);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mju_rotVecQuat(double* res, double* vec, double* quat);

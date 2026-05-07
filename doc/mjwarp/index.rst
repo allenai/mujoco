@@ -1265,8 +1265,6 @@ is available by setting the ``NATIVECCD`` disable flag:
 The specialized collider generates up to 8 contact points, compared to up to 4 for the convex pipeline, and may improve
 contact stability for tasks involving box stacking or manipulation.
 
-.. TODO(taylorhowell): update this section once multiccd is on by default.
-
 CCD margin
 ----------
 
@@ -1283,8 +1281,24 @@ CCD colliders and will raise a ``NotImplementedError`` when calling :func:`mjw.p
      - Scenario
      - Workaround
    * - box-box, box-mesh, mesh-mesh
-     - :ref:`MULTICCD <option-flag-multiccd>` enabled
-     - Set margin to ``0`` or do not enable ``MULTICCD``
+     - :ref:`MULTICCD <option-flag-multiccd>` enabled (on by default)
+     - Set margin to ``0`` or disable ``MULTICCD``
    * - box-box
      - :ref:`NATIVECCD <option-flag-nativeccd>` enabled (on by default)
      - Set margin to ``0`` or disable ``NATIVECCD``
+
+Rendering
+---------
+
+The batch renderer included in MJWarp serves a different purpose than MuJoCo's renderer. The MJWarp batch
+renderer is a single hit raycaster optimized for high throughput and low fidelity.
+
+It supports:
+ * Simple lambertian diffuse shading
+ * Basic point lights and directional lights
+ * Textures
+ * Shadows
+
+It does not support:
+ * Advanced lighting effects such as global illumination
+ * Physically based material properties

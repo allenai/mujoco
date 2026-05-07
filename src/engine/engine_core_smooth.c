@@ -564,46 +564,59 @@ void mj_flex(const mjModel* m, mjData* d) {
 
     // 0: vertices are the mesh vertices, 1: vertices are interpolated from nodal dofs
     if (m->flex_interp[f] == 0) {
-      // centered: copy body position
-      if (m->flex_centered[f]) {
-        for (int i=vstart; i < vend; i++) {
+      for (int i=vstart; i < vend; i++) {
+        if (m->flex_centered[f] ||
+            (m->flex_vert[3*i+0] == 0 &&
+             m->flex_vert[3*i+1] == 0 &&
+             m->flex_vert[3*i+2] == 0)) {
           mji_copy3(d->flexvert_xpos+3*i, d->xpos+3*m->flex_vertbodyid[i]);
-        }
-      }
-
-      // non-centered: map from local to global
-      else {
-        for (int i=vstart; i < vend; i++) {
+        } else {
           mji_mulMatVec3(d->flexvert_xpos+3*i, d->xmat+9*m->flex_vertbodyid[i], m->flex_vert+3*i);
           mji_addTo3(d->flexvert_xpos+3*i, d->xpos+3*m->flex_vertbodyid[i]);
         }
       }
     }
 
-    // trilinear interpolation
+    // trilinear/quadratic interpolation
     else {
-      mjtNum nodexpos[3*mjMAXFLEXNODES];
-      if (m->flex_centered[f]) {
-        for (int i=nstart; i < nend; i++) {
-          mji_copy3(nodexpos + 3*(i-nstart), d->xpos + 3*m->flex_nodebodyid[i]);
-        }
-      } else {
-        for (int i=nstart; i < nend; i++) {
-          int j = i - nstart;
+      int nodenum = nend - nstart;
+      mj_markStack(d);
+      mjtNum* nodexpos = mjSTACKALLOC(d, 3*nodenum, mjtNum);
+      for (int i=nstart; i < nend; i++) {
+        int j = i - nstart;
+        if (m->flex_centered[f] ||
+            (m->flex_node[3*i+0] == 0 &&
+             m->flex_node[3*i+1] == 0 &&
+             m->flex_node[3*i+2] == 0)) {
+          mji_copy3(nodexpos + 3*j, d->xpos + 3*m->flex_nodebodyid[i]);
+        } else {
           mji_mulMatVec3(nodexpos + 3*j, d->xmat + 9*m->flex_nodebodyid[i], m->flex_node + 3*i);
           mji_addTo3(nodexpos + 3*j, d->xpos + 3*m->flex_nodebodyid[i]);
         }
       }
 
-      int order = m->flex_interp[f];
-      if (nend - nstart != (order + 1) * (order + 1) * (order + 1)) {
+      int interp = m->flex_interp[f];
+      int order = interp < 0 ? -interp : interp;
+      int cx = m->flex_cellnum[3*f+0];
+      int cy = m->flex_cellnum[3*f+1];
+      int cz = m->flex_cellnum[3*f+2];
+      int nx_g = cx * order + 1;
+      int ny_g = cy * order + 1;
+      int nz_g = cz * order + 1;
+      if (nend - nstart != nx_g * ny_g * nz_g) {
         mjERROR("flex_interp_order mismatch");
       }
 
       for (int i=vstart; i < vend; i++) {
         mju_zero3(d->flexvert_xpos+3*i);
-        mju_interpolate3D(d->flexvert_xpos+3*i, m->flex_vert0 + 3*i, nodexpos, order);
+
+        // cell lookup: get local coords and node indices
+        mjtNum local[3];
+        int nodeindices[27];  // max npc for quadratic: 3^3 = 27
+        mju_cellLookup(m->flex_vert0 + 3*i, m->flex_cellnum+3*f, order, local, nodeindices);
+        mju_interpolate3D(d->flexvert_xpos+3*i, local, nodexpos, order, nodeindices);
       }
+      mj_freeStack(d);
     }
   }
 
@@ -2612,12 +2625,16 @@ void mj_rnePostConstraint(const mjModel* m, mjData* d) {
     case mjEQ_FLEXSTRAIN: {
       // increment: trilinear uses 2 center (I1,J-1) + 3*ngauss shear, quadratic uses 6*ngauss
       k = m->eq_obj1id[id];
-      int order = m->flex_interp[k];
+      int interp_k = m->flex_interp[k];
+      int order = interp_k < 0 ? -interp_k : interp_k;
       int nodenum = m->flex_nodenum[k];
       if (order && nodenum) {
         int nquad = order + 1;
         int ngauss = nquad * nquad * nquad;
-        i += (order == 1) ? (2 + 3 * ngauss) : (6 * ngauss);
+        int ncells = m->flex_cellnum[3*k+0]
+                   * m->flex_cellnum[3*k+1]
+                   * m->flex_cellnum[3*k+2];
+        i += ncells * ((order == 1) ? (2 + 3 * ngauss) : (6 * ngauss));
       }
       break;
     }

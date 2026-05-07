@@ -90,11 +90,12 @@ void Renderer::Init(const mjModel* model) {
       render_config.width = model->vis.global.offwidth;
       render_config.height = model->vis.global.offheight;
       render_config.force_software_rendering = IsSoftware(gfx_);
-      render_config.graphics_api =
-          IsOpenGl(gfx_) || IsWebGl(gfx_) ? mjGFX_OPENGL : mjGFX_VULKAN;
+      render_config.graphics_api = IsOpenGl(gfx_) || IsWebGl(gfx_)
+                                       ? mjGRAPHICS_API_OPENGL
+                                       : mjGRAPHICS_API_VULKAN;
       mjrf_makeFilamentContext(model, &render_context_, &render_config);
       render_ = [&](mjrRect rect, mjvScene* scene) {
-        mjrf_render(rect, scene, &render_context_);
+        mjrf_renderScene(rect, scene, &render_context_);
       };
       set_buffer_ = [&](int framebuffer) {
         mjrf_setBuffer(framebuffer, &render_context_);

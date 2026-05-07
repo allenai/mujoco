@@ -18,6 +18,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>  // IWYU pragma: keep
 #include <unordered_map>
@@ -33,6 +34,7 @@
 #include "specs_wrapper.h"  // IWYU pragma: keep
 #include "raw.h"
 #include "structs.h"  // IWYU pragma: keep
+#include "vfs.h"
 #include <pybind11/cast.h>
 #include <pybind11/eigen.h>
 #include <pybind11/eigen/matrix.h>
@@ -264,6 +266,49 @@ PYBIND11_MODULE(_specs, m) {
   DefineArray<float>(m, "MjFloatVec");
   DefineArray<int>(m, "MjIntVec");
 
+  // ============================= MJVFS =====================================
+  py::class_<MjVfs>(m, "MjVfs")
+      .def(py::init<>())
+      .def("close", &MjVfs::Close)
+      .def("__enter__", [](MjVfs& self) -> MjVfs& { return self; })
+      .def("__exit__",
+           [](MjVfs& self, py::object, py::object, py::object) {
+             self.Close();
+           })
+      .def("__setitem__",
+           [](MjVfs& self, const std::string& name, py::bytes data) {
+             if (!self.is_open()) {
+               throw std::runtime_error("VFS is closed");
+             }
+             std::string_view buffer = data;
+             const int err = mj_addBufferVFS(
+                 self.get(), name.c_str(), buffer.data(), buffer.size());
+             if (err == 2) {
+               throw py::value_error(
+                   "Repeated file name in VFS: " + name);
+             } else if (err) {
+               throw py::value_error(
+                   "Failed to add buffer to VFS: " + name);
+             }
+           })
+      .def("__delitem__",
+           [](MjVfs& self, const std::string& name) {
+             if (!self.is_open()) {
+               throw std::runtime_error("VFS is closed");
+             }
+             if (mj_deleteFileVFS(self.get(), name.c_str())) {
+               throw py::key_error(name);
+             }
+           })
+      .def("__contains__",
+           [](MjVfs& self, const std::string& name) {
+             if (!self.is_open()) {
+               throw std::runtime_error("VFS is closed");
+             }
+             return mj_containsBufferVFS(self.get(), name.c_str()) == 1;
+           });
+
+
   // ============================= MJSPEC =====================================
   mjSpec.def(py::init<>());
   mjSpec.def_property_readonly(
@@ -272,7 +317,26 @@ PYBIND11_MODULE(_specs, m) {
       "from_file",
       [](std::string& filename,
          std::optional<std::unordered_map<std::string, py::bytes>>& include,
-         std::optional<py::dict>& assets) -> MjSpec {
+         std::optional<py::dict>& assets,
+         MjVfs* vfs) -> MjSpec {
+        if (vfs && (include.has_value() || assets.has_value())) {
+          throw py::value_error(
+              "Cannot specify both 'vfs' and 'include'/'assets'.");
+        }
+        if (vfs) {
+          raw::MjSpec* spec;
+          {
+            py::gil_scoped_release no_gil;
+            char error[1024];
+            spec = InterceptMjErrors(mj_parse)(
+                filename.c_str(), nullptr, vfs->get(),
+                error, sizeof(error));
+            if (!spec) {
+              throw py::value_error(error);
+            }
+          }
+          return MjSpec(spec);
+        }
         const auto files = _impl::ConvertAssetsDict(include);
         raw::MjSpec* spec;
         {
@@ -294,7 +358,8 @@ PYBIND11_MODULE(_specs, m) {
         return MjSpec(spec);
       },
       py::arg("filename"), py::arg("include") = py::none(),
-      py::arg("assets") = py::none(), R"mydelimiter(
+      py::arg("assets") = py::none(), py::arg("vfs") = py::none(),
+      R"mydelimiter(
     Creates a spec from an XML file.
 
     Parameters
@@ -307,13 +372,34 @@ PYBIND11_MODULE(_specs, m) {
     assets : dict, optional
         A dictionary of assets to be used by the spec. The keys are asset names
         and the values are asset contents.
+    vfs : MjVfs, optional
+        A VFS to use for resolving includes and assets. Cannot be used with
+        include or assets.
   )mydelimiter",
       py::return_value_policy::move);
   mjSpec.def_static(
       "from_string",
       [](std::string& xml,
          std::optional<std::unordered_map<std::string, py::bytes>>& include,
-         std::optional<py::dict>& assets) -> MjSpec {
+         std::optional<py::dict>& assets,
+         MjVfs* vfs) -> MjSpec {
+        if (vfs && (include.has_value() || assets.has_value())) {
+          throw py::value_error(
+              "Cannot specify both 'vfs' and 'include'/'assets'.");
+        }
+        if (vfs) {
+          raw::MjSpec* spec;
+          {
+            py::gil_scoped_release no_gil;
+            char error[1024];
+            spec = InterceptMjErrors(mj_parseXMLString)(
+                xml.c_str(), vfs->get(), error, sizeof(error));
+            if (!spec) {
+              throw py::value_error(error);
+            }
+          }
+          return MjSpec(spec);
+        }
         auto files = _impl::ConvertAssetsDict(include);
         raw::MjSpec* spec;
         {
@@ -345,7 +431,8 @@ PYBIND11_MODULE(_specs, m) {
         return MjSpec(spec);
       },
       py::arg("xml"), py::arg("include") = py::none(),
-      py::arg("assets") = py::none(), R"mydelimiter(
+      py::arg("assets") = py::none(), py::arg("vfs") = py::none(),
+      R"mydelimiter(
     Creates a spec from an XML string.
 
     Parameters
@@ -358,6 +445,9 @@ PYBIND11_MODULE(_specs, m) {
     assets : dict, optional
         A dictionary of assets to be used by the spec. The keys are asset names
         and the values are asset contents.
+    vfs : MjVfs, optional
+        A VFS to use for resolving includes and assets. Cannot be used with
+        include or assets.
   )mydelimiter",
       py::return_value_policy::move);
   mjSpec.def("recompile", [mjmodel_mjdata_from_spec_ptr](
@@ -391,9 +481,14 @@ PYBIND11_MODULE(_specs, m) {
         return mjs_findDefault(self.ptr, classname.c_str());
       },
       py::return_value_policy::reference_internal);
-  mjSpec.def("compile", [mjmodel_from_raw_ptr](MjSpec& self) -> py::object {
-    return mjmodel_from_raw_ptr(reinterpret_cast<uintptr_t>(self.Compile()));
-  });
+  mjSpec.def("compile",
+      [mjmodel_from_raw_ptr](MjSpec& self,
+                             std::optional<MjVfs*> vfs) -> py::object {
+        mjVFS* vfs_ptr = vfs.has_value() ? (*vfs)->get() : nullptr;
+        return mjmodel_from_raw_ptr(
+            reinterpret_cast<uintptr_t>(self.Compile(vfs_ptr)));
+      },
+      py::arg("vfs") = py::none());
   mjSpec.def_property(
       "assets",
       [](MjSpec& self) -> py::dict {
@@ -431,6 +526,51 @@ PYBIND11_MODULE(_specs, m) {
       throw FatalError(std::string(err.data()));
     }
   });
+  mjSpec.def(
+      "encode",
+      [](MjSpec& self, std::string filename,
+         std::optional<py::object> model,
+         std::optional<std::string> content_type) -> int {
+        raw::MjModel* m = nullptr;
+        if (model.has_value() && !model->is_none()) {
+          auto& wrapper =
+              py::cast<_impl::MjModelWrapper&>(*model);
+          m = wrapper.get();
+        }
+
+        mjVFS vfs;
+        mjVFS* vfs_ptr = nullptr;
+        if (!self.assets.empty()) {
+          mj_defaultVFS(&vfs);
+          vfs_ptr = &vfs;
+          for (const auto& asset : self.assets) {
+            std::string buffer_name =
+                py::cast<std::string>(asset.first);
+            std::string buffer =
+                py::cast<std::string>(asset.second);
+            mj_addBufferVFS(vfs_ptr, buffer_name.c_str(),
+                            buffer.c_str(), buffer.size());
+          }
+        }
+
+        std::array<char, 1024> err;
+        err[0] = '\0';
+        const char* ct =
+            content_type.has_value() ? content_type->c_str() : nullptr;
+        int nbytes = mj_encode(self.ptr, m, filename.c_str(), ct,
+                               vfs_ptr, err.data(), err.size());
+
+        if (vfs_ptr) {
+          mj_deleteVFS(vfs_ptr);
+        }
+
+        if (nbytes < 0) {
+          throw FatalError(std::string(err.data()));
+        }
+        return nbytes;
+      },
+      py::arg("filename"), py::arg("model") = py::none(),
+      py::arg("content_type") = py::none());
   mjSpec.def(
       "add_default",
       [](MjSpec* spec, std::string& classname,

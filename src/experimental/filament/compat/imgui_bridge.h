@@ -12,27 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_IMGUI_BRIDGE_H_
-#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_IMGUI_BRIDGE_H_
+#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_IMGUI_BRIDGE_H_
+#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_IMGUI_BRIDGE_H_
 
 #include <cstdint>
-#include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include <imgui.h>
-#include <filament/Material.h>
-#include "experimental/filament/filament/mesh.h"
-#include "experimental/filament/filament/renderable.h"
-#include "experimental/filament/filament/scene_view.h"
-#include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
+#include "experimental/filament/render_context_filament_cpp.h"
 
 namespace mujoco {
 
-// Manages Renderables that will be added a SceneView's UX scene.
+// Creates and manages a SceneView using data read from ImGui.
 class ImguiBridge {
  public:
-  ImguiBridge(SceneView* scene_view, filament::Material* ui_material);
+  explicit ImguiBridge(mjrfContext* ctx);
   ~ImguiBridge();
 
   // Prepares the Renderables using data from the current ImGui state. This
@@ -40,8 +36,9 @@ class ImguiBridge {
   // synced.
   void Update();
 
-  // Returns the current ImGui scale factor.
-  float GetScale() const;
+  // Returns the managed UX scene.
+  mjrScene* GetScene() const;
+  mjrCamera GetCamera(int width, int height) const;
 
   // Uploads texture to be used with ImGui's Image and ImageButton functions.
   uintptr_t UploadImage(uintptr_t tex_id, const uint8_t* pixels, int width,
@@ -58,12 +55,14 @@ class ImguiBridge {
   void CreateTexture(ImTextureData* data);
   void UpdateTexture(ImTextureData* data);
   void DestroyTexture(ImTextureData* data);
+  mjrTexture* GetTexture(uintptr_t tex_id) const;
 
-  SceneView* scene_view_ = nullptr;
-  filament::Material* material_ = nullptr;
-  std::vector<std::unique_ptr<Renderable>> renderables_;
-  std::vector<MeshPtr> meshes_;
-  std::unordered_map<uintptr_t, std::unique_ptr<Texture>> textures_;
+  mjrfContext* ctx_ = nullptr;
+  UniquePtr<mjrScene> scene_{nullptr, nullptr};
+  std::vector<UniquePtr<mjrRenderable>> renderables_;
+  std::vector<UniquePtr<mjrMesh>> meshes_;
+  std::unordered_map<uintptr_t, UniquePtr<mjrTexture>> textures_;
+  uintptr_t next_tex_id_ = 1;
 };
 
 // Draws text at the given screen coordinates in clip space (i.e. [-1,-1,-1] to
@@ -72,4 +71,4 @@ void DrawTextAt(const char* text, float x, float y, float z);
 
 }  // namespace mujoco
 
-#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_IMGUI_BRIDGE_H_
+#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_IMGUI_BRIDGE_H_

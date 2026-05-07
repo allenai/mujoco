@@ -494,8 +494,9 @@ typedef enum mjtDisableBit_ {     // disable default feature bitflags
   mjDSBL_AUTORESET    = 1<<16,    // automatic reset when numerical issues are detected
   mjDSBL_NATIVECCD    = 1<<17,    // native convex collision detection
   mjDSBL_ISLAND       = 1<<18,    // constraint island discovery
+  mjDSBL_MULTICCD     = 1<<19,    // multiple CCD contact points
 
-  mjNDISABLE          = 19        // number of disable flags
+  mjNDISABLE          = 20        // number of disable flags
 } mjtDisableBit;
 typedef enum mjtEnableBit_ {      // enable optional feature bitflags
   mjENBL_OVERRIDE     = 1<<0,     // override contact parameters
@@ -503,10 +504,9 @@ typedef enum mjtEnableBit_ {      // enable optional feature bitflags
   mjENBL_FWDINV       = 1<<2,     // record solver statistics
   mjENBL_INVDISCRETE  = 1<<3,     // discrete-time inverse dynamics
                                   // experimental features:
-  mjENBL_MULTICCD     = 1<<4,     // multi-point convex collision detection
-  mjENBL_SLEEP        = 1<<5,     // sleeping
+  mjENBL_SLEEP        = 1<<4,     // sleeping
 
-  mjNENABLE           = 6         // number of enable flags
+  mjNENABLE           = 5         // number of enable flags
 } mjtEnableBit;
 typedef enum mjtJoint_ {          // type of degree of freedom
   mjJNT_FREE          = 0,        // global position and orientation (quat)       (7)
@@ -1041,6 +1041,7 @@ struct mjModel_ {
   mjtSize nflexelem;              // number of elements in all flexes
   mjtSize nflexelemdata;          // number of element vertex ids in all flexes
   mjtSize nflexstiffness;         // number of stiffness parameters in all flexes
+  mjtSize nflexbending;           // number of bending parameters in all flexes
   mjtSize nflexelemedge;          // number of element edge ids in all flexes
   mjtSize nflexshelldata;         // number of shell fragment vertex ids in all flexes
   mjtSize nflexevpair;            // number of element-vertex pairs in all flexes
@@ -1315,6 +1316,8 @@ struct mjModel_ {
   int*      flex_matid;           // material id for rendering                (nflex x 1)
   int*      flex_group;           // group for visibility                     (nflex x 1)
   int*      flex_interp;          // interpolation (0: vertex, 1: nodes)      (nflex x 1)
+  int*      flex_bandwidth;       // precomputed solver bandwidth             (nflex x 1)
+  int*      flex_cellnum;         // finite cell num per dimension            (nflex x 3)
   int*      flex_nodeadr;         // first node address                       (nflex x 1)
   int*      flex_nodenum;         // number of nodes                          (nflex x 1)
   int*      flex_vertadr;         // first vertex address                     (nflex x 1)
@@ -1326,6 +1329,7 @@ struct mjModel_ {
   int*      flex_elemdataadr;     // first element vertex id address          (nflex x 1)
   int*      flex_stiffnessadr;    // stiffness matrix address                 (nflex x 1)
   int*      flex_elemedgeadr;     // first element edge id address            (nflex x 1)
+  int*      flex_bendingadr;      // first bending data address               (nflex x 1)
   int*      flex_shellnum;        // number of shells                         (nflex x 1)
   int*      flex_shelldataadr;    // first shell data address                 (nflex x 1)
   int*      flex_evpairadr;       // first evpair address                     (nflex x 1)
@@ -1354,7 +1358,7 @@ struct mjModel_ {
   mjtNum*   flex_radius;          // radius around primitive element          (nflex x 1)
   mjtNum*   flex_size;            // vertex bounding box half sizes in qpos0  (nflex x 3)
   mjtNum*   flex_stiffness;       // finite element stiffness matrix          (nflexstiffness x 1)
-  mjtNum*   flex_bending;         // bending stiffness                        (nflexedge x 17)
+  mjtNum*   flex_bending;         // bending stiffness                        (nflexbending x 1)
   mjtNum*   flex_damping;         // Rayleigh's damping coefficient           (nflex x 1)
   mjtNum*   flex_edgestiffness;   // edge stiffness                           (nflex x 1)
   mjtNum*   flex_edgedamping;     // edge damping                             (nflex x 1)
@@ -2256,6 +2260,8 @@ typedef struct mjsFlex_ {          // flex specification
   double damping;                  // Rayleigh's damping
   double thickness;                // thickness (2D only)
   int elastic2d;                   // 2D passive forces; 0: none, 1: bending, 2: stretching, 3: both
+  int cellcount[3];                // grid cell count for finite cell method
+  int order;                       // interpolation order (1: trilinear, 2: quadratic)
 
   // mesh properties
   mjStringVec* nodebody;           // node body names
@@ -3157,6 +3163,8 @@ int mj_unmountVFS(mjVFS* vfs, const char* filename);
 int mj_addFileVFS(mjVFS* vfs, const char* directory, const char* filename);
 int mj_addBufferVFS(mjVFS* vfs, const char* name, const void* buffer, int nbuffer);
 int mj_deleteFileVFS(mjVFS* vfs, const char* filename);
+int mj_containsBufferVFS(mjVFS* vfs, const char* name);
+int mj_containsFileVFS(mjVFS* vfs, const char* directory, const char* filename);
 void mj_deleteVFS(mjVFS* vfs);
 size_t mj_getCacheSize(const mjCache* cache);
 size_t mj_getCacheCapacity(const mjCache* cache);
@@ -3268,6 +3276,7 @@ void mj_passive(const mjModel* m, mjData* d);
 void mj_subtreeVel(const mjModel* m, mjData* d);
 void mj_rne(const mjModel* m, mjData* d, int flg_acc, mjtNum* result);
 void mj_rnePostConstraint(const mjModel* m, mjData* d);
+int mj_maxContact(const mjModel* m, int g1, int g2, int has_margin);
 void mj_collision(const mjModel* m, mjData* d);
 void mj_makeConstraint(const mjModel* m, mjData* d);
 void mj_island(const mjModel* m, mjData* d);
@@ -3513,6 +3522,8 @@ int mju_dense2sparse(mjtNum* res, const mjtNum* mat, int nr, int nc,
                      int* rownnz, int* rowadr, int* colind, int nnz);
 void mju_sparse2dense(mjtNum* res, const mjtNum* mat, int nr, int nc,
                       const int* rownnz, const int* rowadr, const int* colind);
+void mju_sym2dense(mjtNum* res, const mjtNum* mat, int n,
+                   const int* rownnz, const int* rowadr, const int* colind);
 void mju_rotVecQuat(mjtNum res[3], const mjtNum vec[3], const mjtNum quat[4]);
 void mju_negQuat(mjtNum res[4], const mjtNum quat[4]);
 void mju_mulQuat(mjtNum res[4], const mjtNum quat1[4], const mjtNum quat2[4]);
@@ -3675,27 +3686,28 @@ mjsSkin* mjs_addSkin(mjSpec* s);
 mjsTexture* mjs_addTexture(mjSpec* s);
 mjsMaterial* mjs_addMaterial(mjSpec* s, const mjsDefault* def);
 int mjs_makeMesh(mjsMesh* mesh, mjtMeshBuiltin builtin, double* params, int nparams);
-mjSpec* mjs_getSpec(mjsElement* element);
-mjsCompiler* mjs_getCompiler(mjsElement* element);
-mjSpec* mjs_findSpec(mjSpec* spec, const char* name);
-mjsBody* mjs_findBody(mjSpec* s, const char* name);
-mjsElement* mjs_findElement(mjSpec* s, mjtObj type, const char* name);
-mjsBody* mjs_findChild(mjsBody* body, const char* name);
-mjsBody* mjs_getParent(mjsElement* element);
-mjsFrame* mjs_getFrame(mjsElement* element);
-mjsFrame* mjs_findFrame(mjSpec* s, const char* name);
-mjsDefault* mjs_getDefault(mjsElement* element);
-mjsDefault* mjs_findDefault(mjSpec* s, const char* classname);
-mjsDefault* mjs_getSpecDefault(mjSpec* s);
-int mjs_getId(mjsElement* element);
-mjsElement* mjs_firstChild(mjsBody* body, mjtObj type, int recurse);
-mjsElement* mjs_nextChild(mjsBody* body, mjsElement* child, int recurse);
-mjsElement* mjs_firstElement(mjSpec* s, mjtObj type);
-mjsElement* mjs_nextElement(mjSpec* s, mjsElement* element);
-mjsElement* mjs_getWrapTarget(mjsWrap* wrap);
-mjsSite* mjs_getWrapSideSite(mjsWrap* wrap);
-double mjs_getWrapDivisor(mjsWrap* wrap);
-double mjs_getWrapCoef(mjsWrap* wrap);
+mjSpec* mjs_getSpec(const mjsElement* element);
+mjSpec* mjs_getOriginSpec(const mjsElement* element);
+mjsCompiler* mjs_getCompiler(const mjsElement* element);
+mjSpec* mjs_findSpec(const mjSpec* spec, const char* name);
+mjsBody* mjs_findBody(const mjSpec* s, const char* name);
+mjsElement* mjs_findElement(const mjSpec* s, mjtObj type, const char* name);
+mjsBody* mjs_findChild(const mjsBody* body, const char* name);
+mjsBody* mjs_getParent(const mjsElement* element);
+mjsFrame* mjs_getFrame(const mjsElement* element);
+mjsFrame* mjs_findFrame(const mjSpec* s, const char* name);
+mjsDefault* mjs_getDefault(const mjsElement* element);
+mjsDefault* mjs_findDefault(const mjSpec* s, const char* classname);
+mjsDefault* mjs_getSpecDefault(const mjSpec* s);
+int mjs_getId(const mjsElement* element);
+mjsElement* mjs_firstChild(const mjsBody* body, mjtObj type, int recurse);
+mjsElement* mjs_nextChild(const mjsBody* body, const mjsElement* child, int recurse);
+mjsElement* mjs_firstElement(const mjSpec* s, mjtObj type);
+mjsElement* mjs_nextElement(const mjSpec* s, const mjsElement* element);
+mjsElement* mjs_getWrapTarget(const mjsWrap* wrap);
+mjsSite* mjs_getWrapSideSite(const mjsWrap* wrap);
+double mjs_getWrapDivisor(const mjsWrap* wrap);
+double mjs_getWrapCoef(const mjsWrap* wrap);
 int mjs_setName(mjsElement* element, const char* name);
 void mjs_setBuffer(mjByteVec* dest, const void* array, int size);
 void mjs_setString(mjString* dest, const char* text);

@@ -27,13 +27,17 @@
 #include <filament/Texture.h>
 #include <mujoco/mujoco.h>
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
 RenderTarget::RenderTarget(filament::Engine* engine,
-                           RenderTargetTextureType color,
-                           RenderTargetTextureType depth)
-    : engine_(engine), color_type_(color), depth_type_(depth) {}
+                           const mjrRenderTargetConfig& config)
+    : engine_(engine), config_(config) {
+  if (config_.width > 0 && config_.height > 0) {
+    Prepare(config_.width, config_.height);
+  }
+}
 
 RenderTarget::~RenderTarget() noexcept {
   Destroy();
@@ -46,11 +50,35 @@ void RenderTarget::Prepare(int width, int height) {
   Destroy();
   width_ = width;
   height_ = height;
+  if (width_ <= 0 || height_ <= 0) {
+    width_ = 0;
+    height_ = 0;
+    return;
+  }
 
-  color_texture_ =
-      std::make_unique<Texture>(engine_, color_type_, width, height);
-  depth_texture_ =
-      std::make_unique<Texture>(engine_, depth_type_, width, height);
+  mjrTextureConfig color_config;
+  mjr_defaultTextureConfig(&color_config);
+  Texture::InternalFlags color_flags;
+  color_config.width = width;
+  color_config.height = height;
+  color_config.sampler_type = mjTEXTURE_2D;
+  color_config.format = config_.color_format;
+  color_config.color_space = mjCOLORSPACE_LINEAR;
+  color_config.format = mjPIXEL_FORMAT_RGB8;
+  color_flags.color_attachment = true;
+  color_texture_ = std::make_unique<Texture>(engine_, color_config, color_flags);
+
+  mjrTextureConfig depth_config;
+  mjr_defaultTextureConfig(&depth_config);
+  Texture::InternalFlags depth_flags;
+  depth_config.width = width;
+  depth_config.height = height;
+  depth_config.sampler_type = mjTEXTURE_2D;
+  depth_config.format = config_.depth_format;
+  depth_config.color_space = mjCOLORSPACE_LINEAR;
+  depth_config.format = mjPIXEL_FORMAT_DEPTH32F;
+  depth_flags.depth_attachment = true;
+  depth_texture_ = std::make_unique<Texture>(engine_, depth_config, depth_flags);
 
   filament::RenderTarget::Builder builder;
   builder.texture(filament::RenderTarget::AttachmentPoint::COLOR,
@@ -65,19 +93,19 @@ void RenderTarget::ReadColorPixels(filament::Renderer* renderer, uint8_t* bytes,
   filament::backend::PixelDataFormat format;
   filament::backend::PixelDataType type;
   size_t expected_num_bytes = 0;
-  switch (color_type_) {
-    case RenderTargetTextureType::kColor:
+  switch (config_.color_format) {
+    case mjPIXEL_FORMAT_RGB8:
       format = filament::backend::PixelDataFormat::RGB;
       type = filament::backend::PixelDataType::UBYTE;
       expected_num_bytes = width_ * height_ * 3;
       break;
-    case RenderTargetTextureType::kDepthColor:
+    case mjPIXEL_FORMAT_R32F:
       format = filament::backend::PixelDataFormat::R;
       type = filament::backend::PixelDataType::FLOAT;
       expected_num_bytes = width_ * height_ * sizeof(float);
       break;
     default:
-      mju_error("Unsupported pixel format: %d", color_type_);
+      mju_error("Unsupported pixel format: %d", config_.color_format);
       return;
   }
   if (num_bytes != expected_num_bytes) {

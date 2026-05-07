@@ -48,7 +48,6 @@ _cb = mjwp_types.Callback(
     **{f.name: None for f in dataclasses.fields(mjwp_types.Callback) if f.init}
 )
 
-
 @ffi.format_args_for_warp
 def _refit_bvh_shim(
     # Model
@@ -111,7 +110,8 @@ def _refit_bvh_shim(
 def _refit_bvh_jax_impl(
     m: types.Model, d: types.Data, ctx: RenderContextPytree
 ):
-  output_dims = {'dummy': (d.qpos.shape[0],)}
+  render_ctx = _MJX_RENDER_CONTEXT_BUFFERS[(ctx.key, None)]
+  output_dims = {'dummy': (render_ctx.nworld,)}
   jf = ffi.jax_callable_variadic_tuple(
       _refit_bvh_shim,
       num_outputs=1,
@@ -124,7 +124,7 @@ def _refit_bvh_jax_impl(
       has_side_effect=True,
   )
   out = jf(
-      d.qpos.shape[0],
+      render_ctx.nworld,
       m._impl.flex_dim,
       m._impl.flex_edge,
       m._impl.flex_elem,

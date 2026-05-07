@@ -575,7 +575,7 @@ Solving for :math:`v_{t+h}`, we obtain the implicit-in-velocity update
 
 .. _geMidpoint:
 
-Midpoint integration for free bodies
+Midpoint integration for free bodies in vacuum
    The implicit-in-velocity update :eq:`eq_implicit_update` treats the acceleration as a function of velocity and
    linearizes. While effective for damping-like forces, it is sub-optimal for rotational dynamics, where
    Coriolis and gyroscopic forces are *quadratic* in angular velocity. For this case, a better approach is to directly
@@ -606,7 +606,9 @@ Midpoint integration for free bodies
    Casimir function of the `Lie-Poisson <https://en.wikipedia.org/wiki/Poisson_bracket>`__ structure, the midpoint
    method is a symmetric (time-reversible) and second-order accurate *Poisson integrator*.
 
-   **Eligibility.** Midpoint integration is only applied to free bodies with no child bodies.
+   **Eligibility.** Midpoint integration is only applied when using the ``implicitfast`` integrator, to
+   free bodies with no child bodies, and only when the medium has zero :ref:`density<option-density>` and
+   :ref:`viscosity<option-viscosity>`.
 
    **Performance.** While the midpoint method carries computational overhead, we've found it to be
    negligible compared to the rest of the pipeline, on the order of 1% in the worst case.
@@ -652,9 +654,8 @@ Fast implicit-in-velocity (``implicitfast``)
    scenarios which are not common and already well-handled by the Runge-Kutta integrator (see below). Because the RNE
    derivatives are also the main source of asymmetry of :math:`D`, by dropping them and symmetrizing, we can use the
    faster :math:`L^TL` rather than :math:`LU` decomposition.
-
-Both ``implicit`` and ``implicitfast`` apply :ref:`midpoint integration<geMidpoint>` to eligible free bodies,
-providing exact energy conservation for spinning objects at negligible additional cost.
+   The ``implicitfast`` integrator applies :ref:`midpoint integration<geMidpoint>` to eligible free bodies in vacuum,
+   providing exact energy conservation for spinning objects at negligible additional cost.
 
 4th-order Runge-Kutta (``RK4``)
    One advantage of our continuous-time formulation is that we can use higher order integrators such as Runge-Kutta or
@@ -688,10 +689,11 @@ providing exact energy conservation for spinning objects at negligible additiona
      increased stability, and is therefore a strict improvement. It is the recommended integrator for most models.
     **implicit**:
      The benefit over ``implicitfast`` is the implicit integration of Coriolis and centripetal forces for *coupled*
-     rotational systems such as multi-link pendula. Both ``implicitfast`` and ``implicit`` apply :ref:`midpoint
-     integration<geMidpoint>` to eligible free bodies with no children, for example
-     `gyroscopic.xml <../_static/gyroscopic.xml>`__ shows an ellipsoid rolling on an
-     inclined plane; both ``implicitfast`` and ``implicit`` handle this case well, while ``Euler`` quickly diverges.
+     rotational systems such as multi-link pendula. Note that ``implicit`` does not apply :ref:`midpoint
+     integration<geMidpoint>` (only ``implicitfast`` does), but its RNE derivatives provide comparable stability
+     for free-body rotation. For example, `gyroscopic.xml <../_static/gyroscopic.xml>`__ shows an ellipsoid rolling
+     on an inclined plane; both ``implicitfast`` and ``implicit`` handle this case well, while ``Euler`` quickly
+     diverges.
     **RK4**:
      This integrator is best for systems which are energy conserving, or almost energy-conserving. `pendulum.xml
      <../_static/pendulum.xml>`__ shows a complicated pendulum mechanism which diverges quickly using ``Euler`` or
@@ -1424,12 +1426,6 @@ While islanding is not free (see implementation in `engine_island.c
 - Unconstrained DOFs are completely untouched by the solver, which otherwise needs to discover that they are unaffected.
 - Solving separate islands can be multi-threaded.
 
-.. admonition:: Known issues
-   :class: note
-
-   Islanding is not yet supported by the PGS solver.
-
-
 .. _soParameters:
 
 Parameters
@@ -1656,23 +1652,25 @@ Both pipelines are controlled by a tolerance (in units of distance) and maximum 
 
 Multiple contacts
 ^^^^^^^^^^^^^^^^^
-Some colliders can return more than one contact per colliding pair to model line or surface contacts, as when two flat
+Some colliders can return more than one contact per colliding pair to model edge or surface contacts, as when two flat
 objects touch. For example the capsule-plane and box-plane colliders can return up to two or four contacts,
-respectively. Standard general-purpose convex collision algorithms like MPR and GJK always return a single contact
+respectively. Standard general-purpose convex collision algorithms like MPR and GJK/EPA always return a single contact
 point, which is problematic for surface contact scenarios (e.g., box-stacking). Both of MuJoCo's CCD pipelines can
 return multiple points per contacting pair ("multiccd"). This behavior is controlled by the
 :ref:`multiccd<option-flag-multiccd>` flag, but is implemented in different ways with different trade-offs:
 
-libccd pipeline (legacy)
+multi-run pipeline (legacy)
   Multiple contact points are found by rotating the two geoms by ±1e-3 radians around the tangential axes and
   re-running the collision routine. If a new contact is detected it is added, allowing for up to 4 additional contact
-  points. This method is effective, but increases the cost of each collision call by a factor of 5.
+  points. This method is effective, but increases the cost of each collision call by a factor of 5.  This method is
+  used when the :ref:`nativeccd<option-flag-nativeccd>` flag is disabled, and for geoms collisions involving cylinders
+  and capsules or with :ref:`positive contact margins<body-geom-margin>`.
 
-native pipeline
-  Native multiccd discovers multiple contacts using a novel analysis of the contacting surfaces at the solution,
-  avoiding full re-runs of the collision routine, and is thus effectively "free". Note that native multiccd currently
-  does not support positive contact margins. If one of the two geoms has a positive margin, native multiccd will fall
-  back to legacy algorithm.
+single-shot pipeline
+  The single-shot pipeline is used in conjunction with the native CCD pipeline, i.e., when the
+  :ref:`nativeccd<option-flag-nativeccd>` flag is enabled. As this pipeline is one-shot and most of the geom analysis
+  is done at compilation time, there is very little performance overhead. Supported geoms are boxes and meshes without
+  :ref:`positive contact margins<body-geom-margin>`.
 
 .. _coDistance:
 
@@ -1716,9 +1714,36 @@ work, but it pays off at runtime and yields both faster and more stable simulati
 Pair-wise colliders
 ^^^^^^^^^^^^^^^^^^^
 
-The table below provides information about the colliders used for different geom pairs. The second row in each cell
-lists the maximum number of contacts generated, possibly with ``multiccd`` enabled. For example, ``Mesh`` / ``Mesh``
-will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
+The table below provides information about the colliders used for different geom pairs. These values can be computed
+dynamically by the :ref:`mj_maxContact` function. Use the toggles to see the max number of contacts returned with the
+parameters :ref:`nativeccd<option-flag-nativeccd>`, :ref:`multiccd<option-flag-multiccd>`, and
+:ref:`margin<body-geom-margin>`.
+
+.. raw:: html
+
+   <div class="pairwise-toggles">
+     <div class="pairwise-toggle-item">
+       <label class="pairwise-switch">
+         <input type="checkbox" id="nativeccd-checkbox" checked>
+         <span class="pairwise-slider"></span>
+       </label>
+       <span>nativeccd</span>
+     </div>
+     <div class="pairwise-toggle-item">
+       <label class="pairwise-switch">
+         <input type="checkbox" id="multiccd-checkbox">
+         <span class="pairwise-slider"></span>
+       </label>
+       <span>multiccd</span>
+     </div>
+     <div class="pairwise-toggle-item">
+       <label class="pairwise-switch">
+         <input type="checkbox" id="margin-checkbox">
+         <span class="pairwise-slider"></span>
+       </label>
+       <span>with margin</span>
+     </div>
+   </div>
 
 .. list-table::
    :header-rows: 1
@@ -1742,7 +1767,7 @@ will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
      - | primitive
        | **1**
      - | primitive
-       | **2**
+       | **4**
      - | primitive
        | **4**
      - | primitive
@@ -1785,12 +1810,28 @@ will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
        | **2**
      - | CCD
        | **1**
-     - | CCD
-       | **1**, **4**
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+           <div class="multiccd-off"><strong>1</strong></div>
+           <div class="multiccd-native"><strong>5</strong></div>
+           <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
      - | primitive
        | **2**
-     - | CCD
-       | **1**, **4**
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+           <div class="multiccd-off"><strong>1</strong></div>
+           <div class="multiccd-native"><strong>5</strong></div>
+           <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
      - | SDF
        | :ref:`sdf_initpoints <option-sdf_initpoints>`
    * - Ellipsoid
@@ -1810,12 +1851,36 @@ will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
      -
      -
      -
-     - | CCD
-       | **1**, **4**
-     - | CCD
-       | **1**, **4**
-     - | CCD
-       | **1**, **4**
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+           <div class="multiccd-off"><strong>1</strong></div>
+           <div class="multiccd-native"><strong>5</strong></div>
+           <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+           <div class="multiccd-off"><strong>1</strong></div>
+           <div class="multiccd-native"><strong>5</strong></div>
+           <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+           <div class="multiccd-off"><strong>1</strong></div>
+           <div class="multiccd-native"><strong>5</strong></div>
+           <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
      - | SDF
        | :ref:`sdf_initpoints <option-sdf_initpoints>`
    * - Box
@@ -1825,8 +1890,16 @@ will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
      -
      - | primitive
        | **8**
-     - | CCD
-       | **1**, **4**
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+           <div class="multiccd-off"><strong>1</strong></div>
+           <div class="multiccd-native"><strong>4</strong></div>
+           <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
      - | SDF
        | :ref:`sdf_initpoints <option-sdf_initpoints>`
    * - Mesh
@@ -1835,8 +1908,16 @@ will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
      -
      -
      -
-     - | CCD
-       | **1**, **4**
+     -
+       .. raw:: html
+
+         <div class="line">CCD</div>
+         <div class="line">
+            <div class="multiccd-off"><strong>1</strong></div>
+            <div class="multiccd-native"><strong>4</strong></div>
+            <div class="multiccd-legacy"><strong>5</strong></div>
+         </div>
+
      - | MeshSDF
        | :ref:`sdf_initpoints <option-sdf_initpoints>`
    * - SDF
@@ -1848,6 +1929,32 @@ will generate up to 1 contact or with ``multiccd`` up to 4 contacts.
      -
      - | SDF
        | :ref:`sdf_initpoints <option-sdf_initpoints>`
+
+.. raw:: html
+
+   <script>
+     const pairwiseToggles = () => {
+       const table = document.querySelector('.table-pairwise');
+       const toggles = [
+         {id: 'nativeccd-checkbox', cls: 'nativeccd-enabled'},
+         {id: 'multiccd-checkbox', cls: 'multiccd-enabled'},
+         {id: 'margin-checkbox', cls: 'margin-enabled'}
+       ];
+
+       toggles.forEach(toggle => {
+         const cb = document.getElementById(toggle.id);
+         if (cb.checked) {
+           table.classList.add(toggle.cls);
+         }
+         cb.addEventListener('change', () => {
+           table.classList.toggle(toggle.cls, this.checked);
+         });
+       });
+     };
+     pairwiseToggles();
+   </script>
+
+
 
 .. _Sleeping:
 

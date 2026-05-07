@@ -1473,6 +1473,17 @@ void RotateFlexGrid(mjModel* model, mjData* data, const char* flex_name,
   }
 }
 
+// Helper: assemble flex stiffness into dense matrix via banded addH
+// This wraps the banded API and converts to dense for test verification.
+static void addH_dense(mjModel* m, mjData* d, mjtNum* H_dense,
+                       const int* dof_indices, int ndof, mjtNum h) {
+  // use full bandwidth (ndof) for exact dense equivalence
+  std::vector<mjtNum> H_band(ndof * ndof, 0);
+  mjd_flexInterp_addH(m, d, H_band.data(), dof_indices, ndof, ndof, h);
+  // convert banded to dense (lower triangle), then symmetrize
+  mju_band2Dense(H_dense, H_band.data(), ndof, ndof, 0, 1);
+}
+
 // compare analytic and fin-diff d_qfrc_passive/d_qvel for flex interp
 // Combined test for verify mjd_flexInterp_mulK (stiffness) and damping
 TEST_F(DerivativeTest, FlexInterpDerivatives) {
@@ -1525,7 +1536,7 @@ TEST_F(DerivativeTest, FlexInterpDerivatives) {
       for (int i = 0; i < nv; i++) dof_indices[i] = i;
 
       // assemble K into H
-      mjd_flexInterp_addH(model, data, H.data(), dof_indices.data(), nv, 1.0);
+      addH_dense(model, data, H.data(), dof_indices.data(), nv, 1.0);
 
       // restore damping
       model->flex_damping[0] = save_damping;
@@ -1618,10 +1629,10 @@ TEST_F(DerivativeTest, FlexInterpDerivatives) {
       for (int i = 0; i < nv; i++) dof_indices[i] = i;
 
       vector<mjtNum> H1(nv * nv, 0);
-      mjd_flexInterp_addH(model, data, H1.data(), dof_indices.data(), nv, 1.0);
+      addH_dense(model, data, H1.data(), dof_indices.data(), nv, 1.0);
 
       vector<mjtNum> H2(nv * nv, 0);
-      mjd_flexInterp_addH(model, data, H2.data(), dof_indices.data(), nv, 0.5);
+      addH_dense(model, data, H2.data(), dof_indices.data(), nv, 0.5);
 
       vector<mjtNum> D(nv * nv);
       for (int i = 0; i < nv * nv; i++) {
@@ -1695,8 +1706,7 @@ TEST_F(DerivativeTest, FlexInterpDerivativesDeformed) {
   for (int i = 0; i < nv; i++) dof_indices[i] = i;
 
   // h=1, damping=0 => adds K to H
-  mjd_flexInterp_addH(model, data, H_approx.data(), dof_indices.data(), nv,
-                      1.0);
+  addH_dense(model, data, H_approx.data(), dof_indices.data(), nv, 1.0);
 
   // 2. Compute Finite Difference Jacobian (Ground Truth)
   // qfrc_passive = -dV/dq
@@ -1733,80 +1743,6 @@ TEST_F(DerivativeTest, FlexInterpDerivativesDeformed) {
 
   mj_deleteData(data);
   mj_deleteModel(model);
-}
-
-TEST_F(DerivativeTest, MidpointFluidAccuracy) {
-  const std::string xml_path =
-      GetTestDataFilePath(kTumblingThinObjectEllipsoidPath);
-  char error[1024];
-  mjModel* m = mj_loadXML(xml_path.c_str(), nullptr, error, sizeof(error));
-  ASSERT_THAT(m, NotNull()) << error;
-
-  mjtNum dt_small = 1e-4;
-  mjtNum dt_large = m->opt.timestep;  // 2e-3, the default
-  mjtNum duration = 0.5;
-
-  mjData* d_ref = mj_makeData(m);
-  mjData* d_midpoint = mj_makeData(m);
-  mjData* d_nomidpoint = mj_makeData(m);
-
-  // give initial angular velocity for tumbling
-  mj_resetData(m, d_ref);
-  mj_resetData(m, d_midpoint);
-  mj_resetData(m, d_nomidpoint);
-  d_ref->qvel[3] = 5;
-  d_ref->qvel[4] = 3;
-  d_ref->qvel[5] = 1;
-  d_midpoint->qvel[3] = 5;
-  d_midpoint->qvel[4] = 3;
-  d_midpoint->qvel[5] = 1;
-  d_nomidpoint->qvel[3] = 5;
-  d_nomidpoint->qvel[4] = 3;
-  d_nomidpoint->qvel[5] = 1;
-
-  int nsteps_large = static_cast<int>(duration / dt_large);
-  int substeps = static_cast<int>(dt_large / dt_small);
-
-  mjtNum error_midpoint = 0;
-  mjtNum error_nomidpoint = 0;
-
-  for (int i = 0; i < nsteps_large; i++) {
-    // reference: RK4 at small timestep
-    m->opt.integrator = mjINT_RK4;
-    m->opt.timestep = dt_small;
-    m->opt.enableflags &= ~mjENBL_INVDISCRETE;
-    for (int j = 0; j < substeps; j++) {
-      mj_step(m, d_ref);
-    }
-
-    // implicit with midpoint (default)
-    m->opt.integrator = mjINT_IMPLICIT;
-    m->opt.timestep = dt_large;
-    m->opt.enableflags &= ~mjENBL_INVDISCRETE;
-    mj_step(m, d_midpoint);
-
-    // implicit without midpoint
-    m->opt.enableflags |= mjENBL_INVDISCRETE;
-    mj_step(m, d_nomidpoint);
-
-    // accumulate position errors
-    for (int k = 0; k < 7; k++) {
-      mjtNum diff_mid = d_ref->qpos[k] - d_midpoint->qpos[k];
-      mjtNum diff_nomid = d_ref->qpos[k] - d_nomidpoint->qpos[k];
-      error_midpoint += diff_mid * diff_mid;
-      error_nomidpoint += diff_nomid * diff_nomid;
-    }
-  }
-
-  // expect midpoint to be more accurate
-  EXPECT_LT(error_midpoint, error_nomidpoint)
-      << "implicit midpoint should be more accurate than implicit without "
-      << "midpoint for a free body with fluid forces";
-
-  mj_deleteData(d_nomidpoint);
-  mj_deleteData(d_midpoint);
-  mj_deleteData(d_ref);
-  mj_deleteModel(m);
 }
 
 }  // namespace

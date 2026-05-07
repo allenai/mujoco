@@ -25,24 +25,28 @@
 #include <utils/Entity.h>
 #include <utils/EntityManager.h>
 #include <mujoco/mujoco.h>
+#include "experimental/filament/filament_util.h"
+#include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/texture.h"
+#include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
 using filament::math::float3;
 using filament::math::mat3f;
 
-Light::Light(filament::Engine* engine, const Params& params)
-    : engine_(engine), params_(params) {
+Light::Light(FilamentContext* ctx, const mjrLightParams& params)
+    : engine_(ctx->GetEngine()), params_(params) {
   // Filament treats image-based lights (IBLs) as separate objects (i.e.
   // filament::IndirectLight) and so we need to handle IBLs specially.
   if (params.type == mjLIGHT_IMAGE) {
     filament::IndirectLight::Builder builder;
     if (params.texture) {
       // Allow null textures for fallback lights.
-      builder.reflections(params.texture->GetFilamentTexture());
+      const Texture* texture = Texture::downcast(params.texture);
+      builder.reflections(texture->GetFilamentTexture());
       const Texture::SphericalHarmonics* spherical_harmonics =
-          params.texture->GetSphericalHarmonics();
+          texture->GetSphericalHarmonics();
       if (spherical_harmonics != nullptr) {
         builder.irradiance(3, *spherical_harmonics);
       }
@@ -71,9 +75,9 @@ Light::Light(filament::Engine* engine, const Params& params)
   }
 
   filament::LightManager::Builder builder(type);
-  builder.color(params.color);
+  builder.color(ReadFloat3(params.color));
   builder.intensityCandela(params.intensity);
-  builder.castShadows(params.castshadow);
+  builder.castShadows(params.cast_shadows);
   if (type == filament::LightManager::Type::FOCUSED_SPOT) {
     builder.spotLightCone(0,
                           params.spot_cone_angle * std::numbers::pi / 180.0f);
@@ -85,7 +89,7 @@ Light::Light(filament::Engine* engine, const Params& params)
   opts.mapSize = 4096;
   opts.shadowCascades =
       type == filament::LightManager::Type::DIRECTIONAL ? 4 : 1;
-  opts.shadowBulbRadius = params.bulbradius;
+  opts.shadowBulbRadius = params.bulb_radius;
   opts.mapSize = params.shadow_map_size;
   if (params.vsm_blur_width > 0.0f) {
     opts.vsm.elvsm = true;
@@ -141,7 +145,10 @@ void Light::SetTransform(filament::math::float3 position,
 
 void Light::SetColor(const filament::math::float3& color) {
   if (!ibl_) {
-    params_.color = color;
+    params_.color[0] = color.r;
+    params_.color[1] = color.g;
+    params_.color[2] = color.b;
+
     filament::LightManager& lm = engine_->getLightManager();
     const filament::LightManager::Instance li = lm.getInstance(entity_);
     lm.setColor(li, color);

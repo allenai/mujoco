@@ -46,6 +46,10 @@ MJAPI int mju_dense2sparse(mjtNum* res, const mjtNum* mat, int nr, int nc,
 MJAPI void mju_sparse2dense(mjtNum* res, const mjtNum* mat, int nr, int nc, const int* rownnz,
                             const int* rowadr, const int* colind);
 
+// convert lower-triangular symmetric CSR matrix to full dense matrix
+MJAPI void mju_sym2dense(mjtNum* res, const mjtNum* mat, int n,
+                         const int* rownnz, const int* rowadr, const int* colind);
+
 // res[row, :] = mat[row, :]
 void mju_copySparse(mjtNum* res, const mjtNum* mat, const int* rownnz, const int* rowadr,
                     const int* row, int nrow);
@@ -62,11 +66,10 @@ MJAPI void mju_mulMatVecSparse(mjtNum* res, const mjtNum* mat, const mjtNum* vec
 MJAPI void mju_mulMatTVecSparse(mjtNum* res, const mjtNum* mat, const mjtNum* vec, int nr, int nc,
                                 const int* rownnz, const int* rowadr, const int* colind);
 
-// add sparse matrix M to sparse destination matrix, requires pre-allocated buffers
+// add sparse matrix M to sparse destination matrix
 MJAPI void mju_addToMatSparse(mjtNum* dst, int* rownnz, int* rowadr, int* colind, int nr,
                               const mjtNum* M, const int* M_rownnz, const int* M_rowadr,
-                              const int* M_colind,
-                              mjtNum* buf_val, int* buf_ind);
+                              const int* M_colind);
 
 // add symmetric matrix (only lower triangle represented) to dense matrix
 MJAPI void mju_addToSymSparse(mjtNum* res, const mjtNum* mat, int n,
@@ -159,12 +162,24 @@ MJAPI void mju_sqrMatTDSparseNumeric(
 // precompute res_rowadr for mju_sqrMatTDSparse using uncompressed memory
 MJAPI void mju_sqrMatTDUncompressedInit(int* res_rowadr, int nc);
 
+// extract a single block of a dense matrix
+void mju_block(mjtNum* res, const mjtNum* mat, int nc_mat, int nc_res, int nr,
+               const int* perm_r, const int* perm_c);
+
 // block-diagonalize a dense matrix
-MJAPI void mju_blockDiag(mjtNum* res, const mjtNum* mat,
-                         int nc_mat, int nc_res, int nb,
+MJAPI void mju_blockDiag(mjtNum* res, const mjtNum* mat, int nc_mat, int nc_res, int nb,
                          const int* perm_r, const int* perm_c,
                          const int* block_nr, const int* block_nc,
                          const int* block_r, const int* block_c);
+
+// extract a single block of a sparse matrix
+void mju_blockSparse(
+  mjtNum* res, int* res_rownnz, int* res_rowadr, int* res_colind,
+  const mjtNum* mat, const int* rownnz, const int* rowadr, const int* colind,
+  int nr,
+  const int* perm_r, const int* perm_c,
+  int col_offset, int res_offset,
+  mjtNum* res2, const mjtNum* mat2);
 
 // block-diagonalize a sparse matrix
 MJAPI void mju_blockDiagSparse(
@@ -294,8 +309,7 @@ void mju_addToSclScl(mjtNum* res, const mjtNum* vec, mjtNum scl1, mjtNum scl2, i
 // combine two sparse vectors: dst = a*dst + b*src, return nnz of result
 static inline
 int mju_combineSparse(mjtNum* dst, const mjtNum* src, mjtNum a, mjtNum b,
-                      int dst_nnz, int src_nnz, int* dst_ind, const int* src_ind,
-                      mjtNum* buf, int* buf_ind) {
+                      int dst_nnz, int src_nnz, int* dst_ind, const int* src_ind) {
   // check for identical pattern
   if (dst_nnz == src_nnz) {
     if (mju_compare(dst_ind, src_ind, dst_nnz)) {
@@ -305,49 +319,54 @@ int mju_combineSparse(mjtNum* dst, const mjtNum* src, mjtNum a, mjtNum b,
     }
   }
 
-  // copy dst into buf
-  if (dst_nnz) {
-    memcpy(buf, dst, dst_nnz * sizeof(mjtNum));
-    memcpy(buf_ind, dst_ind, dst_nnz * sizeof(int));
-  }
+  // compute total nnz of result
+  int nnz = mju_combineSparseCount(dst_nnz, src_nnz, dst_ind, src_ind);
 
-  // prepare to merge buf and src into dst
-  int bi = 0, si = 0, nnz = 0;
-  int buf_nnz = dst_nnz;
+  // set up read/write pointers at end of arrays
+  int bi = dst_nnz - 1, si = src_nnz - 1, w = nnz - 1;
 
-  // merge vectors
-  while (bi < buf_nnz && si < src_nnz) {
-    int badr = buf_ind[bi];
+  // merge backwards
+  while (bi >= 0 && si >= 0) {
+    int badr = dst_ind[bi];
     int sadr = src_ind[si];
 
     if (badr == sadr) {
-      dst[nnz] = a*buf[bi++] + b*src[si++];
-      dst_ind[nnz++] = badr;
+      dst[w] = a*dst[bi] + b*src[si];
+      dst_ind[w] = badr;
+      bi--;
+      si--;
     }
 
-    // buf only
-    else if (badr < sadr) {
-      dst[nnz] = a*buf[bi++];
-      dst_ind[nnz++] = badr;
+    // dst only
+    else if (badr > sadr) {
+      dst[w] = a*dst[bi];
+      dst_ind[w] = badr;
+      bi--;
     }
 
     // src only
     else {
-      dst[nnz] = b*src[si++];
-      dst_ind[nnz++] = sadr;
+      dst[w] = b*src[si];
+      dst_ind[w] = sadr;
+      si--;
     }
+    w--;
   }
 
-  // the rest of src only
-  while (si < src_nnz) {
-    dst[nnz] = b*src[si];
-    dst_ind[nnz++] = src_ind[si++];
+  // remaining src elements
+  while (si >= 0) {
+    dst[w] = b*src[si];
+    dst_ind[w] = src_ind[si];
+    si--;
+    w--;
   }
 
-  // the rest of buf only
-  while (bi < buf_nnz) {
-    dst[nnz] = a*buf[bi];
-    dst_ind[nnz++] = buf_ind[bi++];
+  // remaining dst elements: already in place, scale by a
+  if (a != 1) {
+    while (bi >= 0) {
+      dst[bi] *= a;
+      bi--;
+    }
   }
 
   return nnz;

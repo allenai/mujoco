@@ -67,6 +67,7 @@ class BlockDim:
   update_gradient_JTDAJ_sparse: int = 64
   update_gradient_JTDAJ_dense: int = 96
   linesearch_iterative: int = 32
+  contact_jac_tiled: int = 32
   # derivative
   qderiv_actuator_dense: int = 32
 
@@ -203,6 +204,7 @@ class DisableBit(enum.IntFlag):
   EULERDAMP = mujoco.mjtDisableBit.mjDSBL_EULERDAMP
   NATIVECCD = mujoco.mjtDisableBit.mjDSBL_NATIVECCD
   ISLAND = mujoco.mjtDisableBit.mjDSBL_ISLAND
+  MULTICCD = mujoco.mjtDisableBit.mjDSBL_MULTICCD
   # unsupported: MIDPHASE, AUTORESET
 
 
@@ -217,7 +219,6 @@ class EnableBit(enum.IntFlag):
 
   ENERGY = mujoco.mjtEnableBit.mjENBL_ENERGY
   INVDISCRETE = mujoco.mjtEnableBit.mjENBL_INVDISCRETE
-  MULTICCD = mujoco.mjtEnableBit.mjENBL_MULTICCD
   # unsupported: OVERRIDE, FWDINV, ISLAND
 
 
@@ -251,6 +252,7 @@ class DynType(enum.IntEnum):
     FILTEREXACT: linear filter: da/dt = (u-a) / tau, with exact integration
     MUSCLE: piece-wise linear filter with two time constants
     USER: user-defined dynamics via act_dyn_callback
+    DCMOTOR: DC motor dynamics
   """
 
   NONE = mujoco.mjtDyn.mjDYN_NONE
@@ -259,6 +261,7 @@ class DynType(enum.IntEnum):
   FILTEREXACT = mujoco.mjtDyn.mjDYN_FILTEREXACT
   MUSCLE = mujoco.mjtDyn.mjDYN_MUSCLE
   USER = mujoco.mjtDyn.mjDYN_USER
+  DCMOTOR = mujoco.mjtDyn.mjDYN_DCMOTOR
 
 
 class GainType(enum.IntEnum):
@@ -269,12 +272,14 @@ class GainType(enum.IntEnum):
     AFFINE: const + kp*length + kv*velocity
     MUSCLE: muscle FLV curve computed by muscle_gain
     USER: user-defined gain via act_gain_callback
+    DCMOTOR: DC motor gain
   """
 
   FIXED = mujoco.mjtGain.mjGAIN_FIXED
   AFFINE = mujoco.mjtGain.mjGAIN_AFFINE
   MUSCLE = mujoco.mjtGain.mjGAIN_MUSCLE
   USER = mujoco.mjtGain.mjGAIN_USER
+  DCMOTOR = mujoco.mjtGain.mjGAIN_DCMOTOR
 
 
 class BiasType(enum.IntEnum):
@@ -285,12 +290,14 @@ class BiasType(enum.IntEnum):
     AFFINE: const + kp*length + kv*velocity
     MUSCLE: muscle passive force computed by muscle_bias
     USER: user-defined bias via act_bias_callback
+    DCMOTOR: DC motor back-EMF bias
   """
 
   NONE = mujoco.mjtBias.mjBIAS_NONE
   AFFINE = mujoco.mjtBias.mjBIAS_AFFINE
   MUSCLE = mujoco.mjtBias.mjBIAS_MUSCLE
   USER = mujoco.mjtBias.mjBIAS_USER
+  DCMOTOR = mujoco.mjtBias.mjBIAS_DCMOTOR
 
 
 class JointType(enum.IntEnum):
@@ -546,6 +553,7 @@ class ObjType(enum.IntEnum):
     BODY: body
     XBODY: body, used to access regular frame instead of i-frame
     GEOM: geom
+    FLEX: flex
     SITE: site
     CAMERA: camera
   """
@@ -554,6 +562,7 @@ class ObjType(enum.IntEnum):
   BODY = mujoco.mjtObj.mjOBJ_BODY
   XBODY = mujoco.mjtObj.mjOBJ_XBODY
   GEOM = mujoco.mjtObj.mjOBJ_GEOM
+  FLEX = mujoco.mjtObj.mjOBJ_FLEX
   SITE = mujoco.mjtObj.mjOBJ_SITE
   CAMERA = mujoco.mjtObj.mjOBJ_CAMERA
 
@@ -643,6 +652,10 @@ class vec5f(wp.types.vector(length=5, dtype=float)):
 
 
 class vec6f(wp.types.vector(length=6, dtype=float)):
+  pass
+
+
+class vec6i(wp.types.vector(length=6, dtype=int)):
   pass
 
 
@@ -854,6 +867,8 @@ class Model:
     nflexedge: number of edges in all flexes
     nflexelem: number of elements in all flexes
     nflexelemdata: number of element vertex ids in all flexes
+    nflexstiffness: number of stiffness parameters in all flexes
+    nflexbending: number of bending parameters in all flexes
     nflexelemedge: number of element edge ids in all flexes
     nflexshelldata: number of shell fragment vertex ids in all flexes
     nJfe: number of non-zeros in sparse flexedge Jacobian
@@ -921,6 +936,7 @@ class Model:
     jnt_pos: local anchor position                           (*, njnt, 3)
     jnt_axis: local joint axis                               (*, njnt, 3)
     jnt_stiffness: stiffness coefficient                     (*, njnt)
+    jnt_stiffnesspoly: high-order stiffness coefficients     (*, njnt, 2)
     jnt_range: joint limits                                  (*, njnt, 2)
     jnt_actfrcrange: range of total actuator force           (*, njnt, 2)
     jnt_margin: min distance for limit detection             (*, njnt)
@@ -934,6 +950,7 @@ class Model:
     dof_frictionloss: dof friction loss                      (*, nv)
     dof_armature: dof armature inertia/mass                  (*, nv)
     dof_damping: damping coefficient                         (*, nv)
+    dof_dampingpoly: high-order damping coefficients         (*, nv, 2)
     dof_invweight0: diag. inverse inertia in qpos0           (*, nv)
     tree_bodynum: number of bodies in tree (incl. root)      (ntree,)
     tree_dofadr: start address of tree's dofs                (ntree,)
@@ -992,8 +1009,13 @@ class Model:
     flex_contype: flex contact type                          (nflex,)
     flex_conaffinity: flex contact affinity                  (nflex,)
     flex_condim: contact dimensionality (1, 3, 4, 6)         (nflex,)
+    flex_priority: geom contact priority                     (nflex,)
+    flex_solmix: mixing coef for solref/imp in geom pair     (nflex,)
+    flex_solref: constraint solver reference: contact        (nflex, mjNREF)
+    flex_solimp: constraint solver impedance: contact        (nflex, mjNIMP)
     flex_friction: friction for (slide, spin, roll)          (nflex, 3)
     flex_margin: detect contact if dist<margin               (nflex,)
+    flex_gap: include in solver if dist<margin-gap           (nflex,)
     flex_dim: 1: lines, 2: triangles, 3: tetrahedra          (nflex,)
     flex_vertadr: first vertex address                       (nflex,)
     flex_vertnum: number of vertices                         (nflex,)
@@ -1002,7 +1024,9 @@ class Model:
     flex_elemadr: first element address                      (nflex,)
     flex_elemnum: number of elements                         (nflex,)
     flex_elemdataadr: first element vertex id address        (nflex,)
+    flex_stiffnessadr: stiffness matrix address               (nflex,)
     flex_elemedgeadr: first element edge id address          (nflex,)
+    flex_bendingadr: first bending data address              (nflex,)
     flex_shellnum: number of shells                          (nflex,)
     flex_shelldataadr: first shell data address              (nflex,)
     flex_vertbodyid: vertex body ids                         (nflexvert,)
@@ -1015,8 +1039,8 @@ class Model:
     flexedge_length0: edge lengths in qpos0                  (nflexedge,)
     flexedge_invweight0: inv. inertia for the edge           (nflexedge,)
     flex_radius: radius around primitive element             (nflex,)
-    flex_stiffness: finite element stiffness matrix          (nflexelem, 21)
-    flex_bending: bending stiffness                          (nflexedge, 17)
+    flex_stiffness: finite element stiffness matrix          (nflexstiffness,)
+    flex_bending: bending stiffness                          (nflexbending,)
     flex_damping: Rayleigh's damping coefficient             (nflex,)
     flex_centered: flex vertices are centered at body origin (nflex,)
     flexedge_J_rownnz: number of nonzeros in Jacobian row    (nflexedge,)
@@ -1084,7 +1108,9 @@ class Model:
     tendon_actfrcrange: range of total actuator force        (*, ntendon, 2)
     tendon_margin: min distance for limit detection          (*, ntendon)
     tendon_stiffness: stiffness coefficient                  (*, ntendon)
+    tendon_stiffnesspoly: high-order stiffness coefficients  (*, ntendon, 2)
     tendon_damping: damping coefficient                      (*, ntendon)
+    tendon_dampingpoly: high-order damping coefficients      (*, ntendon, 2)
     tendon_armature: inertia associated with tendon velocity (*, ntendon)
     tendon_frictionloss: loss due to friction                (*, ntendon)
     tendon_lengthspring: spring resting length range         (*, ntendon, 2)
@@ -1142,7 +1168,7 @@ class Model:
     nsensortaxel: number of taxels in all tactile sensors
     nsensorcontact: number of contact sensors
     nrangefinder: number of rangefinder sensors
-    nmaxcondim: maximum condim for geoms
+    nmaxcondim: maximum condim across geoms, pairs, and flexes
     nmaxpyramid: maximum number of pyramid directions
     nmaxpolygon: maximum number of verts per polygon
     nmaxmeshdeg: maximum number of polygons per vert
@@ -1157,6 +1183,7 @@ class Model:
     body_fluid_ellipsoid: does body use ellipsoid fluid      (nbody,)
     jnt_limited_slide_hinge_adr: limited/slide/hinge jntadr
     jnt_limited_ball_adr: limited/ball jntadr
+    body_isdofancestor: precomputed mask of which DOFs affect each body
     dof_tri_row: dof lower triangle row (used in solver)
     dof_tri_col: dof lower triangle col (used in solver)
     nxn_geom_pair: collision pair geom ids [-2, ngeom-1]
@@ -1243,6 +1270,8 @@ class Model:
   nflexedge: int
   nflexelem: int
   nflexelemdata: int
+  nflexstiffness: int
+  nflexbending: int
   nflexelemedge: int
   nflexshelldata: int
   nJfe: int
@@ -1310,6 +1339,7 @@ class Model:
   jnt_pos: array("*", "njnt", wp.vec3)
   jnt_axis: array("*", "njnt", wp.vec3)
   jnt_stiffness: array("*", "njnt", float)
+  jnt_stiffnesspoly: array("*", "njnt", wp.vec2)
   jnt_range: array("*", "njnt", wp.vec2)
   jnt_actfrcrange: array("*", "njnt", wp.vec2)
   jnt_margin: array("*", "njnt", float)
@@ -1323,6 +1353,7 @@ class Model:
   dof_frictionloss: array("*", "nv", float)
   dof_armature: array("*", "nv", float)
   dof_damping: array("*", "nv", float)
+  dof_dampingpoly: array("*", "nv", wp.vec2)
   dof_invweight0: array("*", "nv", float)
   tree_bodynum: array("ntree", int)
   tree_dofadr: array("ntree", int)
@@ -1381,8 +1412,13 @@ class Model:
   flex_contype: array("nflex", int)
   flex_conaffinity: array("nflex", int)
   flex_condim: array("nflex", int)
+  flex_priority: array("nflex", int)
+  flex_solmix: array("nflex", float)
+  flex_solref: array("nflex", wp.vec2)
+  flex_solimp: array("nflex", vec5)
   flex_friction: array("nflex", wp.vec3)
   flex_margin: array("nflex", float)
+  flex_gap: array("nflex", float)
   flex_dim: array("nflex", int)
   flex_vertadr: array("nflex", int)
   flex_vertnum: array("nflex", int)
@@ -1391,7 +1427,9 @@ class Model:
   flex_elemadr: array("nflex", int)
   flex_elemnum: array("nflex", int)
   flex_elemdataadr: array("nflex", int)
+  flex_stiffnessadr: array("nflex", int)
   flex_elemedgeadr: array("nflex", int)
+  flex_bendingadr: array("nflex", int)
   flex_shellnum: array("nflex", int)
   flex_shelldataadr: array("nflex", int)
   flex_vertbodyid: array("nflexvert", int)
@@ -1404,8 +1442,8 @@ class Model:
   flexedge_length0: array("nflexedge", float)
   flexedge_invweight0: array("nflexedge", float)
   flex_radius: array("nflex", float)
-  flex_stiffness: array("nflexelem", 21, float)
-  flex_bending: array("nflexedge", 17, float)
+  flex_stiffness: array("nflexstiffness", float)
+  flex_bending: array("nflexbending", float)
   flex_damping: array("nflex", float)
   flex_centered: array("nflex", bool)
   flexedge_J_rownnz: array("nflexedge", int)
@@ -1473,7 +1511,9 @@ class Model:
   tendon_actfrcrange: array("*", "ntendon", wp.vec2)
   tendon_margin: array("*", "ntendon", float)
   tendon_stiffness: array("*", "ntendon", float)
+  tendon_stiffnesspoly: array("*", "ntendon", wp.vec2)
   tendon_damping: array("*", "ntendon", float)
+  tendon_dampingpoly: array("*", "ntendon", wp.vec2)
   tendon_armature: array("*", "ntendon", float)
   tendon_frictionloss: array("*", "ntendon", float)
   tendon_lengthspring: array("*", "ntendon", wp.vec2)
@@ -1544,6 +1584,7 @@ class Model:
   body_fluid_ellipsoid: array("nbody", bool)
   jnt_limited_slide_hinge_adr: wp.array[int]
   jnt_limited_ball_adr: wp.array[int]
+  body_isdofancestor: array("nbody", "nv_pad", int)
   dof_tri_row: wp.array[int]
   dof_tri_col: wp.array[int]
   nxn_geom_pair: wp.array[wp.vec2i]
@@ -1680,6 +1721,7 @@ class Constraint:
     state: constraint state                           (nworld, njmax_pad)
   warp only fields:
     Ma: M*qacc                                        (nworld, nv)
+    Jqvel: J*qvel                                     (nworld, njmax)
   """
 
   type: array("nworld", "njmax", int)
@@ -1697,6 +1739,7 @@ class Constraint:
   force: array("nworld", "njmax", float)
   state: array("nworld", "njmax_pad", int)
   Ma: array("nworld", "nv", float)
+  Jqvel: array("nworld", "njmax", float)
 
 
 @dataclasses.dataclass
@@ -1939,11 +1982,14 @@ class RenderContext:
     depth_adr: depth addresses
     render_rgb: per-camera RGB render flags
     render_depth: per-camera depth render flags
-    seg_data: segmentation data (per-pixel geom IDs)
+    seg_data: segmentation data (per-pixel object ID/type pairs)
     seg_adr: segmentation addresses
     render_seg: per-camera segmentation render flags
     znear: near plane distance
     total_rays: total number of rays
+    render_skybox: whether to shade missed rays with the MuJoCo skybox texture
+    skybox_tex_id: index into textures of the skybox (MuJoCo tex_type == SKYBOX), -1 if none
+    skybox_face_width: pixel width of one skybox cube face (0 if no skybox)
   """
 
   nrender: int
@@ -1953,6 +1999,9 @@ class RenderContext:
   use_shadows: bool
   background_color: wp.uint32
   use_precomputed_rays: bool
+  render_skybox: bool
+  skybox_tex_id: int
+  skybox_face_width: int
   bvh_ngeom: int
   enabled_geom_ids: array("*", int)
   mesh_registry: dict
@@ -1988,7 +2037,7 @@ class RenderContext:
   depth_adr: array("ncam", int)
   render_rgb: array("ncam", bool)
   render_depth: array("ncam", bool)
-  seg_data: array("*", int)
+  seg_data: array("*", wp.vec2i)
   seg_adr: array("ncam", int)
   render_seg: array("ncam", bool)
   znear: float
