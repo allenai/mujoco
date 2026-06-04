@@ -40,36 +40,9 @@ static float GetPlaneTileSize(const mjModel* model, int matid,
   }
 }
 
-static bool IsBehind(const float* headpos, const float* pos, const float* mat) {
-  return ((headpos[0] - pos[0]) * mat[2] + (headpos[1] - pos[1]) * mat[5] +
-              (headpos[2] - pos[2]) * mat[8] <
-          0.0f);
-}
-
-static const mjrMesh* GetMesh(ModelObjects* model_objs, int data_id) {
-  const mjrMesh* mesh = model_objs->GetMeshBuffer(data_id);
-  if (mesh == nullptr) {
-    mju_error("Unknown mesh %d", data_id);
-  }
-  return mesh;
-}
-
-static const mjrMesh* GetSkinFlexMesh(ModelObjects* model_objs, int objid) {
-  return model_objs->GetFlexSkinGeomMesh(objid);
-}
-
-static const mjrMesh* GetHeightField(ModelObjects* model_objs, int hfield_id) {
-  const mjrMesh* mesh = model_objs->GetHeightFieldBuffer(hfield_id);
-  if (mesh == nullptr) {
-    mju_error("Unknown height field %d", hfield_id);
-  }
-  return mesh;
-}
-
 static void PrepareGeomMeshes(mjrRenderable* renderable, const mjvGeom& geom,
-                              const mjvScene* scene,
-                              ModelObjects* model_objects) {
-  const mjModel* model = model_objects->GetModel();
+                              ModelObjects* model_objs) {
+  const mjModel* model = model_objs->GetModel();
   const int nstack = model->vis.quality.numstacks;
   const int nslice = model->vis.quality.numslices;
   const int nquad = model->vis.quality.numquads;
@@ -78,92 +51,84 @@ static void PrepareGeomMeshes(mjrRenderable* renderable, const mjvGeom& geom,
   std::memcpy(position, &geom.pos, 3 * sizeof(float));
   float rotation[9];
   std::memcpy(rotation, &geom.mat, 9 * sizeof(float));
-  float size[3];
-  std::memcpy(size, &geom.size, 3 * sizeof(float));
 
-  switch ((mjtGeom)geom.type) {
+  const mjtGeom geom_type = (mjtGeom)geom.type;
+  switch (geom_type) {
     case mjGEOM_MESH:
     case mjGEOM_SDF:
-      mjrf_setRenderableMesh(renderable, GetMesh(model_objects, geom.dataid), 0, 0);
-      // Ignore size for meshes.
-      size[0] = 1.f;
-      size[1] = 1.f;
-      size[2] = 1.f;
+      mjrf_setRenderableMesh(renderable, model_objs->GetMesh(geom.dataid), 0, 0);
       break;
     case mjGEOM_HFIELD:
-      mjrf_setRenderableMesh(renderable, GetHeightField(model_objects, geom.dataid), 0, 0);
-      // Ignore size for meshes.
-      size[0] = 1.f;
-      size[1] = 1.f;
-      size[2] = 1.f;
+      mjrf_setRenderableMesh(renderable, model_objs->GetHeightField(geom.dataid), 0, 0);
       break;
     case mjGEOM_PLANE: {
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
-
-      const bool is_infinite = !(size[0] > 0 && size[1] > 0);
-      if (is_infinite) {
-        // Infinite planes are scaled to match the tile size used by
-        // re-centering in engine_vis_visualize.c.
-        const float plane_scale = static_cast<float>(mjMAXPLANEGRID) / 2.0f;
-        size[0] = plane_scale;
-        size[1] = plane_scale;
-      }
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
       // Planes only define an xy size, so set the z-dimension to 1.0f.
-      size[2] = 1.0f;
+      const float size[3] = {geom.size[0], geom.size[1], 1.0f};
+      mjrf_setRenderableSize(renderable, size);
       break;
     }
     case mjGEOM_SPHERE:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_ELLIPSOID:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_BOX:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_CAPSULE:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_CYLINDER:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_ARROW:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_ARROW1:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_ARROW2:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_LINE:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_LINEBOX:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_TRIANGLE:
-      mjrf_setRenderableGeomMesh(renderable, (mjtGeom)geom.type, nstack, nslice, nquad);
+      mjrf_setRenderableGeomMesh(renderable, geom_type, nstack, nslice, nquad);
+      mjrf_setRenderableSize(renderable, geom.size);
       break;
     case mjGEOM_FLEX:
-      mjrf_setRenderableMesh(renderable, GetSkinFlexMesh(model_objects, geom.objid), 0, 0);
+      mjrf_setRenderableMesh(renderable, model_objs->GetFlexMesh(geom.objid), 0, 0);
       // Flexes are defined in global space.
       std::memset(position, 0, sizeof(position));
       std::memset(rotation, 0, sizeof(rotation));
       rotation[0] = 1.f;
       rotation[4] = 1.f;
       rotation[8] = 1.f;
-      std::memset(size, 0, sizeof(size));
       break;
     case mjGEOM_SKIN:
-      mjrf_setRenderableMesh(renderable, GetSkinFlexMesh(model_objects, geom.objid), 0, 0);
+      mjrf_setRenderableMesh(renderable, model_objs->GetSkinMesh(geom.objid), 0, 0);
       // Skins are defined in global space.
       std::memset(position, 0, sizeof(position));
       std::memset(rotation, 0, sizeof(rotation));
       rotation[0] = 1.f;
       rotation[4] = 1.f;
       rotation[8] = 1.f;
-      std::memset(size, 0, sizeof(size));
       break;
     case mjGEOM_NONE:
     case mjGEOM_LABEL:
@@ -174,15 +139,14 @@ static void PrepareGeomMeshes(mjrRenderable* renderable, const mjvGeom& geom,
       break;
   }
 
-  mjrf_setRenderableTransform(renderable, position, rotation, size);
+  mjrf_setRenderableTransform(renderable, position, rotation);
 }
 
 static void UpdateGeomMaterial(mjrRenderable* renderable, const mjvGeom& geom,
-                               const mjvScene* scene, ModelObjects* model_objs,
-                               const float headpos[3]) {
+                               ModelObjects* model_objs,
+                               const mjtByte render_flags[mjNRNDFLAG]) {
   const mjModel* model = model_objs->GetModel();
 
-  const bool use_segid_color = scene->flags[mjRND_IDCOLOR];
   mjrMaterial material;
   mjr_defaultMaterial(&material);
 
@@ -194,37 +158,20 @@ static void UpdateGeomMaterial(mjrRenderable* renderable, const mjvGeom& geom,
   material.color[1] = geom.rgba[1];
   material.color[2] = geom.rgba[2];
   material.color[3] = geom.rgba[3];
-  if (geom.type == mjGEOM_PLANE) {
-    if (IsBehind(headpos, geom.pos, geom.mat)) {
-      material.color[3] *= 0.3;
-      mjrf_setRenderableReceiveShadows(renderable, false);
-      material.reflective = false;
-    } else {
-      mjrf_setRenderableReceiveShadows(renderable, true);
-      material.reflective = geom.reflectance > 0 && material.color[3] == 1.0f;
-    }
-  }
-  mjrf_setRenderableLayerMask(renderable, geom.category);
-  if (geom.category == mjCAT_DECOR) {
-    mjrf_setRenderableCastShadows(renderable, false);
-    mjrf_setRenderableReceiveShadows(renderable, false);
-  } else {
-    mjrf_setRenderableWireframe(renderable, scene->flags[mjRND_WIREFRAME]);
-  }
 
-  if (geom.matid >= 0) {
-    material.color_texture = model_objs->GetTexture(geom.matid, mjTEXROLE_RGB);
-    material.normal_texture =
-        model_objs->GetTexture(geom.matid, mjTEXROLE_NORMAL);
-    material.emissive_texture =
-        model_objs->GetTexture(geom.matid, mjTEXROLE_EMISSIVE);
-    material.orm_texture = model_objs->GetTexture(geom.matid, mjTEXROLE_ORM);
-    material.metallic_texture =
-        model_objs->GetTexture(geom.matid, mjTEXROLE_METALLIC);
-    material.roughness_texture =
-        model_objs->GetTexture(geom.matid, mjTEXROLE_ROUGHNESS);
-    material.occlusion_texture =
-        model_objs->GetTexture(geom.matid, mjTEXROLE_OCCLUSION);
+  if (geom.matid >= 0 && geom.matid < model->nmat) {
+    auto get_texture = [&](int role) -> const mjrTexture* {
+      const int tex_id = model->mat_texid[geom.matid * mjNTEXROLE + role];
+      return tex_id >= 0 ? model_objs->GetTexture(tex_id) : nullptr;
+    };
+    material.color_texture = get_texture(mjTEXROLE_RGB);
+    material.normal_texture = get_texture(mjTEXROLE_NORMAL);
+    material.opacity_texture = get_texture(mjTEXROLE_OPACITY);
+    material.emissive_texture = get_texture(mjTEXROLE_EMISSIVE);
+    material.orm_texture = get_texture(mjTEXROLE_ORM);
+    material.metallic_texture = get_texture(mjTEXROLE_METALLIC);
+    material.roughness_texture = get_texture(mjTEXROLE_ROUGHNESS);
+    material.occlusion_texture = get_texture(mjTEXROLE_OCCLUSION);
   }
 
   material.reflectance = geom.reflectance;
@@ -238,6 +185,7 @@ static void UpdateGeomMaterial(mjrRenderable* renderable, const mjvGeom& geom,
 
   if (geom.segid >= 0) {
     uint32_t segmentation_color = geom.segid + 1;
+    const bool use_segid_color = render_flags[mjRND_IDCOLOR];
     if (!use_segid_color) {
       constexpr double phi1 = 1.61803398874989484820;  // Cached Phi(1).
       constexpr double coef1 = 1.0 / phi1;
@@ -245,13 +193,9 @@ static void UpdateGeomMaterial(mjrRenderable* renderable, const mjvGeom& geom,
       const double sample = std::fmod(0.5 + coef1 * index, 1.0);
       segmentation_color = 0x01000000 * sample;
     }
-
-    const uint8_t red = (segmentation_color >> 0) & 0xff;
-    const uint8_t green = (segmentation_color >> 8) & 0xff;
-    const uint8_t blue = (segmentation_color >> 16) & 0xff;
-    material.segmentation_color[0] = static_cast<float>(red) / 255.0f;
-    material.segmentation_color[1] = static_cast<float>(green) / 255.0f;
-    material.segmentation_color[2] = static_cast<float>(blue) / 255.0f;
+    material.segmentation_color[0] = (segmentation_color >> 0);
+    material.segmentation_color[1] = (segmentation_color >> 8);
+    material.segmentation_color[2] = (segmentation_color >> 16);
   }
 
   // UvScale only applies to objects that don't have explicit UV coordinates
@@ -333,13 +277,14 @@ static void UpdateGeomMaterial(mjrRenderable* renderable, const mjvGeom& geom,
 }
 
 UniquePtr<mjrRenderable> CreateGeomRenderable(
-    const mjvGeom& geom, const mjvScene* scene, mjrfContext* ctx,
-    ModelObjects* model_objs, const float headpos[3]) {
+    const mjvGeom& geom, mjrfContext* ctx, ModelObjects* model_objs,
+    const mjtByte render_flags[mjNRNDFLAG]) {
   mjrRenderableParams params;
   mjr_defaultRenderableParams(&params);
+  params.layer_mask = geom.category;
   auto renderable = CreateRenderable(ctx, params);
-  PrepareGeomMeshes(renderable.get(), geom, scene, model_objs);
-  UpdateGeomMaterial(renderable.get(), geom, scene, model_objs, headpos);
+  PrepareGeomMeshes(renderable.get(), geom, model_objs);
+  UpdateGeomMaterial(renderable.get(), geom, model_objs, render_flags);
   return renderable;
 }
 }  // namespace mujoco

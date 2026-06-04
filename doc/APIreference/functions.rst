@@ -601,14 +601,7 @@ Get name of object with the specified :ref:`mjtObj` type and id, returns ``NULL`
 
 .. mujoco-include:: mj_fullM
 
-Convert sparse inertia matrix ``M`` into full (i.e. dense) matrix.
-|br| ``dst`` must be of size ``nv x nv``, ``M`` must be of the same structure as ``mjData.qM``.
-
-The ``mjData`` members ``qM`` and ``M`` represent the same matrix in different formats; the former is unique to
-MuJoCo, the latter is standard Compressed Sparse Row (lower triangle only). The :math:`L^T D L` factor of the inertia
-matrix ``mjData.qLD`` uses the same CSR format as ``mjData.M``. See
-`engine_support_test <https://github.com/google-deepmind/mujoco/blob/main/test/engine/engine_support_test.cc>`__ for
-pedagogical examples.
+Convert sparse inertia matrix into full (i.e. dense) matrix.
 
 .. _mj_mulM:
 
@@ -1980,24 +1973,6 @@ Error and memory
 
 Main error function; does not return to caller.
 
-.. _mju_error_i:
-
-`mju_error_i <#mju_error_i>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_error_i
-
-Deprecated: use mju_error.
-
-.. _mju_error_s:
-
-`mju_error_s <#mju_error_s>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_error_s
-
-Deprecated: use mju_error.
-
 .. _mju_warning:
 
 `mju_warning <#mju_warning>`__
@@ -2006,24 +1981,6 @@ Deprecated: use mju_error.
 .. mujoco-include:: mju_warning
 
 Main warning function; returns to caller.
-
-.. _mju_warning_i:
-
-`mju_warning_i <#mju_warning_i>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_warning_i
-
-Deprecated: use mju_warning.
-
-.. _mju_warning_s:
-
-`mju_warning_s <#mju_warning_s>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_warning_s
-
-Deprecated: use mju_warning.
 
 .. _mju_clearHandlers:
 
@@ -2078,6 +2035,15 @@ Write [datetime, type: message] to MUJOCO_LOG.TXT.
 .. mujoco-include:: mjs_getError
 
 Get compiler error message from spec.
+
+.. _mjs_getTimer:
+
+`mjs_getTimer <#mjs_getTimer>`__
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. mujoco-include:: mjs_getTimer
+
+Get compiler timing diagnostics from spec, returns pointer to array of size mjNCTIMER.
 
 .. _mjs_isWarning:
 
@@ -3366,59 +3332,14 @@ If no match, return NULL.
 
 Threads
 ^^^^^^^
-.. _mju_threadPoolCreate:
+.. _mju_threadpool:
 
-`mju_threadPoolCreate <#mju_threadPoolCreate>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+`mju_threadpool <#mju_threadpool>`__
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. mujoco-include:: mju_threadPoolCreate
+.. mujoco-include:: mju_threadpool
 
-Create a thread pool with the specified number of threads running.
-
-.. _mju_bindThreadPool:
-
-`mju_bindThreadPool <#mju_bindThreadPool>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_bindThreadPool
-
-Adds a thread pool to mjData and configures it for multi-threaded use.
-
-.. _mju_threadPoolEnqueue:
-
-`mju_threadPoolEnqueue <#mju_threadPoolEnqueue>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_threadPoolEnqueue
-
-Enqueue a task in a thread pool.
-
-.. _mju_threadPoolDestroy:
-
-`mju_threadPoolDestroy <#mju_threadPoolDestroy>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_threadPoolDestroy
-
-Destroy a thread pool.
-
-.. _mju_defaultTask:
-
-`mju_defaultTask <#mju_defaultTask>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_defaultTask
-
-Initialize an mjTask.
-
-.. _mju_taskJoin:
-
-`mju_taskJoin <#mju_taskJoin>`__
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. mujoco-include:: mju_taskJoin
-
-Wait for a task to complete.
+Create a thread pool with nthread worker threads.
 
 .. _Standardmath:
 
@@ -4486,6 +4407,17 @@ Add sensor.
 .. mujoco-include:: mjs_addFlex
 
 Add flex.
+
+.. _mjs_makeFlex:
+
+`mjs_makeFlex <#mjs_makeFlex>`__
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. mujoco-include:: mjs_makeFlex
+
+Add flexcomp: create flex with auto-generated bodies/joints, return flex spec.
+
+*Nullable:* ``type``, ``dof``, ``count``, ``cellcount``, ``spacing``, ``scale``, ``pos``, ``quat``, ``origin``, ``file``, ``vfs``
 
 .. _mjs_addPair:
 

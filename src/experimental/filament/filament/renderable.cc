@@ -14,15 +14,19 @@
 
 #include "experimental/filament/filament/renderable.h"
 
-#include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <numbers>
+#include <span>
 
 #include <filament/Engine.h>
 #include <filament/Material.h>
 #include <filament/RenderableManager.h>
 #include <filament/Scene.h>
 #include <filament/TransformManager.h>
+#include <math/TMatHelpers.h>
+#include <math/TVecHelpers.h>
+#include <math/mat3.h>
 #include <math/mat4.h>
 #include <math/vec2.h>
 #include <math/vec3.h>
@@ -31,11 +35,10 @@
 #include <mujoco/mujoco.h>
 #include "experimental/filament/filament_util.h"
 #include "experimental/filament/filament/builtins.h"
-#include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/material.h"
 #include "experimental/filament/filament/mesh.h"
 #include "experimental/filament/filament/object_manager.h"
-#include "experimental/filament/filament/texture.h"
+#include "experimental/filament/filament/reflection_manager.h"
 #include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
@@ -43,21 +46,23 @@ namespace mujoco {
 using filament::math::float2;
 using filament::math::float3;
 using filament::math::float4;
+using filament::math::mat3f;
 using filament::math::mat4f;
 
 // An arbitrary scale factor for arrows.
 static constexpr float kArrowScale = 1.f / 6.f;
 static constexpr float kArrowHeadSize = 1.75f;
 
-Renderable::Renderable(FilamentContext* ctx, const mjrRenderableParams& params)
-    : object_mgr_(ctx->GetObjectManager()), params_(params) {
+Renderable::Renderable(filament::Engine* engine,
+                       const mjrRenderableParams& params,
+                       ObjectManager* object_mgr)
+    : object_mgr_(object_mgr), params_(params) {
   mjr_defaultMaterial(&material_);
 }
 
 Renderable::~Renderable() noexcept {
   filament::Engine* engine = GetEngine();
   utils::EntityManager& em = utils::EntityManager::get();
-
   for (Part& part : parts_) {
     if (assigned_scene_) {
       assigned_scene_->remove(part.entity);
@@ -65,11 +70,8 @@ Renderable::~Renderable() noexcept {
     engine->destroy(part.entity);
     em.destroy(part.entity);
   }
-  for (int i = 0; i < mjNUM_DRAW_MODES; ++i) {
-    if (instances_[i] != nullptr) {
-      engine->destroy(instances_[i]);
-      instances_[i] = nullptr;
-    }
+  for (auto& instance : instances_) {
+    engine->destroy(instance.second);
   }
 }
 
@@ -77,6 +79,11 @@ void Renderable::SetMesh(const Mesh* mesh, int elem_offset, int elem_count) {
   if (mesh == nullptr) {
     mju_error("Cannot set mesh to nullptr.");
   }
+
+  // We use MESH, even though it could be any mesh-like geom type, e.g.
+  // heightfields, flex, skin, sdf, etc.
+  geom_type_ = mjGEOM_MESH;
+
   filament::VertexBuffer* vertex_buffer = mesh->GetFilamentVertexBuffer();
   if (vertex_buffer == nullptr) {
     mju_error("Invalid (null) vertex buffer.");
@@ -129,9 +136,6 @@ void Renderable::InitPartEntity(Part& part) {
   } else {
     builder.culling(false);
   }
-  if (instances_[static_cast<int>(draw_mode_)] != nullptr) {
-    builder.material(0, instances_[static_cast<int>(draw_mode_)]);
-  }
   builder.castShadows(params_.cast_shadows);
   builder.receiveShadows(params_.receive_shadows);
   builder.layerMask(0xff, params_.layer_mask);
@@ -145,21 +149,40 @@ void Renderable::InitPartEntity(Part& part) {
   }
 }
 
-void Renderable::SetTransform(const Trs& trs) {
+void Renderable::SetTransform(const float3& position, const mat3f& rotation) {
+  trs_.translation = position;
+  trs_.rotation = rotation;
+  UpdateTransform();
+}
+
+void Renderable::SetSize(const float3& size) {
+  trs_.size = size;
+  UpdateTransform();
+}
+
+void Renderable::UpdateTransform() {
   if (parts_.empty()) {
-    transform_ = trs.ToTransform();
+    transform_ = trs_.ToTransform();
     return;
   }
 
   filament::TransformManager& tm = GetEngine()->getTransformManager();
-  if (get_transform_fn_) {
+  if (geom_type_ == mjGEOM_PLANE && (trs_.size[0] <= 0 || trs_.size[1] <= 0)) {
+    infinite_plane_ = true;
+    const mat4f transform =
+        filament::math::mat4f(trs_.rotation, trs_.translation);
+    for (Part& part : parts_) {
+      tm.setTransform(tm.getInstance(part.entity), transform);
+    }
+  } else if (get_transform_fn_) {
     for (int i = 0; i < parts_.size(); ++i) {
-      const mat4f& transform = get_transform_fn_(i, trs);
+      const mat4f transform = get_transform_fn_(i, trs_);
       tm.setTransform(tm.getInstance(parts_[i].entity), transform);
     }
   } else {
+    const mat4f transform = trs_.ToTransform();
     for (Part& part : parts_) {
-      tm.setTransform(tm.getInstance(part.entity), trs.ToTransform());
+      tm.setTransform(tm.getInstance(part.entity), transform);
     }
   }
   transform_ = tm.getTransform(tm.getInstance(parts_[0].entity));
@@ -203,59 +226,146 @@ void Renderable::RemoveFromScene(filament::Scene* scene) {
 
 void Renderable::UpdateMaterial(const mjrMaterial& material) {
   material_ = material;
-
-  AssignMaterial(mjDRAW_MODE_COLOR, GetColorMaterialType());
-  if (!material_.decor_ux) {
-    AssignMaterial(mjDRAW_MODE_DEPTH, ObjectManager::kUnlitDepth);
-    AssignMaterial(mjDRAW_MODE_SEGMENTATION, ObjectManager::kUnlitSegmentation);
-  }
-
-  for (int i = 0; i < mjNUM_DRAW_MODES; ++i) {
-    if (instances_[i]) {
-      UpdateMaterialInstance(instances_[i], material_, object_mgr_);
-    }
-  }
-  SetDrawMode(draw_mode_);
-}
-
-void Renderable::AssignMaterial(mjrDrawMode mode,
-                                ObjectManager::MaterialType material_type) {
-  const int index = static_cast<int>(mode);
-
-  filament::Material* material = object_mgr_->GetMaterial(material_type);
-  if (instances_[index]) {
-    if (instances_[index]->getMaterial() == material) {
-      // The correct material is already assigned, do nothing.
-      return;
-    } else {
-      GetEngine()->destroy(instances_[index]);
-      instances_[index] = nullptr;
-    }
-  }
-  if (material) {
-    instances_[index] = material->createInstance();
-  }
 }
 
 const mjrMaterial& Renderable::GetMaterial() const {
   return material_;
 }
 
-void Renderable::SetDrawMode(mjrDrawMode mode) {
-  // Only SceneObjects support non-color draw modes.
-  if (!material_.decor_ux) {
-    mode = mjDRAW_MODE_COLOR;
+void Renderable::Prepare(std::span<const mjrRenderRequest*> requests,
+                         ReflectionManager* reflection_mgr) {
+  // We assume BindMaterialInstance will be called with the same requests in
+  // the same order. As such, we'll just store the draw state in a deque rather
+  // than trying to perform any kind of matching with the requests.
+  draw_queue_.clear();
+  curr_state_ = DrawState();
+
+  for (const mjrRenderRequest* request : requests) {
+    DrawState draw_state;
+    mjrMaterial material = material_;
+
+    draw_state.wireframe = (request->draw_mode == mjDRAW_MODE_WIREFRAME);
+    if (material.decor_ux) {
+      draw_state.cast_shadows = false;
+      draw_state.receive_shadows = false;
+    }
+
+    if (geom_type_ == mjGEOM_PLANE) {
+      const float3 camera_pos = ReadFloat3(request->camera.pos);
+      const float3 position = transform_[3].xyz;
+      const float3 forward = transform_[2].xyz;
+      const bool is_behind_camera = dot(camera_pos - position, forward) < 0;
+      if (is_behind_camera) {
+        material.color[3] *= 0.3;
+        draw_state.receive_shadows = false;
+      }
+    }
+
+    const bool reflective = request->draw_mode == mjDRAW_MODE_COLOR &&
+                            request->enable_reflections &&
+                            material.reflectance > 0.0;
+    if (reflective) {
+      material.reflection_texture = reflection_mgr->Register(
+          this, request->viewport.width, request->viewport.height);
+    }
+
+    draw_state.material_key =
+        PrepareMaterialInstance(material, request->draw_mode);
+    draw_queue_.push_back(draw_state);
+  }
+}
+
+MaterialKey Renderable::PrepareMaterialInstance(const mjrMaterial& material,
+                                                mjrDrawMode draw_mode) {
+  ObjectManager::MaterialType type;
+  if (draw_mode == mjDRAW_MODE_COLOR || draw_mode == mjDRAW_MODE_WIREFRAME) {
+    const Mesh* mesh = !parts_.empty() ? parts_[0].mesh : nullptr;
+    type = GetMaterialType(material, mesh);
+  } else if (draw_mode == mjDRAW_MODE_DEPTH) {
+    type = ObjectManager::kUnlitDepth;
+  } else if (draw_mode == mjDRAW_MODE_SEGMENTATION) {
+    type = ObjectManager::kUnlitSegmentation;
+  } else {
+    mju_error("Invalid draw mode: %d", draw_mode);
+    return 0;
   }
 
-  filament::MaterialInstance* instance = instances_[static_cast<int>(mode)];
-  if (instance) {
+  const MaterialKey key = BuildMaterialKey(type, material);
+
+  auto it = instances_.find(key);
+  if (it == instances_.end()) {
+    filament::MaterialInstance* instance =
+        object_mgr_->GetMaterial(type)->createInstance();
+    UpdateMaterialInstance(instance, material, object_mgr_);
+    if (geom_type_ == mjGEOM_PLANE || geom_type_ == mjGEOM_TRIANGLE) {
+      instance->setCullingMode(filament::MaterialInstance::CullingMode::NONE);
+    }
+    instances_[key] = instance;
+  }
+  return key;
+}
+
+void Renderable::BindMaterialInstance(const mjrRenderRequest& request) {
+  if (draw_queue_.empty()) {
+    mju_error("No material instances to bind.");
+  }
+
+  if (geom_type_ == mjGEOM_PLANE && infinite_plane_) {
+    // Emulate an infinite plane by recentering a large quad in world space
+    // relative to the camera. We use the shared mjMAXPLANEGRID value as the
+    // size of the quad to ensure the texture scaling matches.
+    static constexpr float kInfiniteScale = 0.5f * mjMAXPLANEGRID;
+    const mat4f scaling =
+        mat4f::scaling(float3{kInfiniteScale, kInfiniteScale, 1.0f});
+
+    const float3 camera_pos = ReadFloat3(request.camera.pos);
+    const float3 plane_origin = transform_[3].xyz;
+    const mat3f plane_rotation = transform_.upperLeft();
+
+    const float3 vec = camera_pos - plane_origin;
+    const float3 plane_x = normalize(plane_rotation[0]);
+    const float3 plane_y = normalize(plane_rotation[1]);
+
+    // Project camera position onto the plane's local XY axes.
+    float dx = dot(vec, plane_x);
+    float dy = dot(vec, plane_y);
+
+    // Quantize based on uv_scale.
+    const float tile_size[] = {kInfiniteScale / material_.uv_scale[0],
+                               kInfiniteScale / material_.uv_scale[1]};
+    dx = tile_size[0] * mju_round(dx / tile_size[0]);
+    dy = tile_size[1] * mju_round(dy / tile_size[1]);
+
+    // Calculate the new center quad as a displacement from the plane origin.
+    const float3 displacement = dx * plane_x + dy * plane_y;
+    const float3 center = plane_origin + displacement;
+
+    const mat4f transform = mat4f(plane_rotation, center) * scaling;
+    filament::TransformManager& tm = GetEngine()->getTransformManager();
+    for (Part& part : parts_) {
+      tm.setTransform(tm.getInstance(part.entity), transform);
+    }
+  }
+
+  const DrawState& state = draw_queue_.front();
+  SetCastShadows(state.cast_shadows);
+  SetReceiveShadows(state.receive_shadows);
+  SetWireframe(state.wireframe);
+  SetMaterialInstance(state.material_key);
+  curr_state_ = state;
+  draw_queue_.pop_front();
+}
+
+void Renderable::SetMaterialInstance(MaterialKey key) {
+  if (key != curr_state_.material_key) {
+    filament::MaterialInstance* instance = instances_[key];
     filament::RenderableManager& rm = GetEngine()->getRenderableManager();
     for (Part& part : parts_) {
       filament::RenderableManager::Instance ri = rm.getInstance(part.entity);
       rm.setMaterialInstanceAt(ri, 0, instance);
     }
+    curr_state_.material_key = key;
   }
-  draw_mode_ = mode;
 }
 
 std::uint8_t Renderable::SetLayerMask(std::uint8_t mask) {
@@ -338,75 +448,9 @@ void Renderable::SetWireframe(bool wireframe) {
   }
 }
 
-ObjectManager::MaterialType Renderable::GetColorMaterialType() const {
-  if (material_.decor_ux) {
-    if (material_.color_texture) {
-      return ObjectManager::kUnlitUi;
-    } else {
-      return ObjectManager::kUnlitDecor;
-    }
-  } else if (material_.orm_texture) {
-    return ObjectManager::kPbrPacked;
-  } else if (material_.metallic_texture) {
-    return ObjectManager::kPbr;
-  } else if (material_.roughness_texture) {
-    return ObjectManager::kPbr;
-  } else if (material_.metallic >= 0) {
-    return ObjectManager::kPbr;
-  } else if (material_.roughness >= 0) {
-    return ObjectManager::kPbr;
-  }
-
-  // Check to see if we're dealing with a mesh with texture coordinates.
-  // `data_id` is the id of the mesh in model (i.e. the geom has mesh
-  // geometry) and `mesh_texcoordadr` stores the address of the mesh uvs if
-  // it has them.
-  bool has_texcoords = false;
-  const Texture* color_texture = Texture::downcast(material_.color_texture);
-  if (!parts_.empty()) {
-    const auto attribs = parts_[0].mesh->GetVertexAttributes();
-    auto it = std::find(attribs.begin(), attribs.end(),
-                        filament::VertexAttribute::UV0);
-    has_texcoords = (it != attribs.end());
-  }
-
-  if (color_texture == nullptr) {
-    if (material_.color[3] < 1.0f) {
-      return ObjectManager::kPhongColorFade;
-    } else if (material_.reflective) {
-      return ObjectManager::kPhongColorReflect;
-    } else {
-      return ObjectManager::kPhongColor;
-    }
-  } else if (color_texture->GetSamplerType() == mjTEXTURE_CUBE) {
-    if (material_.color[3] < 1.0f) {
-      return ObjectManager::kPhongCubeFade;
-    } else if (material_.reflective) {
-      return ObjectManager::kPhongCubeReflect;
-    } else {
-      return ObjectManager::kPhongCube;
-    }
-  } else if (has_texcoords) {
-    if (material_.color[3] < 1.0f) {
-      return ObjectManager::kPhong2dUvFade;
-    } else if (material_.reflective) {
-      return ObjectManager::kPhong2dUvReflect;
-    } else {
-      return ObjectManager::kPhong2dUv;
-    }
-  } else {
-    if (material_.color[3] < 1.0f) {
-      return ObjectManager::kPhong2dFade;
-    } else if (material_.reflective) {
-      return ObjectManager::kPhong2dReflect;
-    } else {
-      return ObjectManager::kPhong2d;
-    }
-  }
-}
-
 void Renderable::SetGeomMesh(mjtGeom type, int nstack, int nslice, int nquad) {
   Builtins* builtins = object_mgr_->GetBuiltins(nstack, nslice, nquad);
+  geom_type_ = type;
 
   switch (type) {
     case mjGEOM_PLANE:

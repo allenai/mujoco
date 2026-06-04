@@ -50,3 +50,8 @@ compile_commands.json
 /assets
 /typings
 
+/test/ai2/*.png
+/test/ai2/*.jpg
+/test/ai2/*.xml
+
+

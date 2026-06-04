@@ -106,19 +106,19 @@ endif()
 
 # WASM Live target.
 if(EMSCRIPTEN)
-    add_executable(mujoco_live)
-    target_sources(mujoco_live PRIVATE wasm.cc)
-    target_compile_options(mujoco_live PRIVATE -g)
-    configure_studio_target(mujoco_live)
-    target_link_libraries(mujoco_live PRIVATE mujoco::render_noop)
+    add_executable(mujoco_studio)
+    target_sources(mujoco_studio PRIVATE emscripten.cc)
+    target_compile_options(mujoco_studio PRIVATE -g)
+    configure_studio_target(mujoco_studio)
+    target_link_libraries(mujoco_studio PRIVATE mujoco::render_noop)
 
     # Ensure resource decoder plugins are linked into the WASM binary.
-    target_link_options(mujoco_live PRIVATE
+    target_link_options(mujoco_studio PRIVATE
         -Wl,--whole-archive $<TARGET_FILE:mujoco> -Wl,--no-whole-archive
     )
 
     # Filament's OpenGL backend requires WebGL2 / full ES3 bindings.
-    target_link_options(mujoco_live PRIVATE
+    target_link_options(mujoco_studio PRIVATE
         --bind
         -sUSE_WEBGL2=1
         -sFULL_ES3
@@ -128,8 +128,9 @@ if(EMSCRIPTEN)
         -sASYNCIFY=1
         -sFETCH=1
         -sGL_PREINITIALIZED_CONTEXT=1
-        -sSTACK_SIZE=512mb
+        -sSTACK_SIZE=32mb
         -sINITIAL_MEMORY=1024mb
+        -sMAXIMUM_MEMORY=4gb
         -sASSERTIONS=1
         -fexceptions
         -g

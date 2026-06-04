@@ -48,10 +48,12 @@ _cb = mjwp_types.Callback(
     **{f.name: None for f in dataclasses.fields(mjwp_types.Callback) if f.init}
 )
 
+
 @ffi.format_args_for_warp
 def _render_shim(
     # Model
     nworld: int,
+    block_dim: mjwp_types.BlockDim,
     cam_fovy: wp.array2d[float],
     cam_intrinsic: wp.array2d[wp.vec4],
     cam_projection: wp.array[int],
@@ -91,6 +93,7 @@ def _render_shim(
   _m.callback = _cb
   _d.efc = _e
   _d.contact = _c
+  _m.block_dim = block_dim
   _m.cam_fovy = cam_fovy
   _m.cam_intrinsic = cam_intrinsic
   _m.cam_projection = cam_projection
@@ -149,6 +152,7 @@ def _render_jax_impl(m: types.Model, d: types.Data, ctx: RenderContextPytree):
           'geom_size',
           'geom_xmat',
           'geom_xpos',
+          'light_active',
           'light_castshadow',
           'light_type',
           'mat_rgba',
@@ -160,6 +164,7 @@ def _render_jax_impl(m: types.Model, d: types.Data, ctx: RenderContextPytree):
   )
   out = jf(
       render_ctx.nworld,
+      m._impl.block_dim,
       m.cam_fovy,
       m.cam_intrinsic,
       m._impl.cam_projection,
@@ -172,7 +177,7 @@ def _render_jax_impl(m: types.Model, d: types.Data, ctx: RenderContextPytree):
       m.geom_rgba,
       m.geom_size,
       m.geom_type,
-      m._impl.light_active,
+      m.light_active,
       m.light_castshadow,
       m.light_type,
       m.mat_rgba,

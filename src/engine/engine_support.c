@@ -43,8 +43,8 @@
 
 //-------------------------- Constants -------------------------------------------------------------
 
- #define mjVERSION 3008001
-#define mjVERSIONSTRING "3.8.1"
+ #define mjVERSION 3010000
+#define mjVERSIONSTRING "3.10.0"
 
 // names of disable flags
 const char* mjDISABLESTRING[mjNDISABLE] = {
@@ -77,7 +77,8 @@ const char* mjENABLESTRING[mjNENABLE] = {
   "Energy",
   "Fwdinv",
   "InvDiscrete",
-  "Sleep"
+  "Sleep",
+  "DiagExact"
 };
 
 
@@ -219,7 +220,7 @@ void mj_getState(const mjModel* m, const mjData* d, mjtNum* state, int sig) {
     if (element & sig) {
       int size = mj_stateElemSize(m, element);
 
-      // special handling of eq_active (mjtByte)
+      // special handling of eq_active (mjtBool)
       if (element == mjSTATE_EQ_ACTIVE) {
         int neq = m->neq;
         for (int j=0; j < neq; j++) {
@@ -287,7 +288,7 @@ void mj_setState(const mjModel* m, mjData* d, const mjtNum* state, int sig) {
     if (element & sig) {
       int size = mj_stateElemSize(m, element);
 
-      // special handling of eq_active (mjtByte)
+      // special handling of eq_active (mjtBool)
       if (element == mjSTATE_EQ_ACTIVE) {
         int neq = m->neq;
         for (int j=0; j < neq; j++) {
@@ -323,7 +324,7 @@ void mj_copyState(const mjModel* m, const mjData* src, mjData* dst, int sig) {
     if (element & sig) {
       int size = mj_stateElemSize(m, element);
 
-      // special handling of eq_active (mjtByte)
+      // special handling of eq_active (mjtBool)
       if (element == mjSTATE_EQ_ACTIVE) {
         int neq = m->neq;
         for (int j=0; j < neq; j++) {
@@ -366,19 +367,8 @@ void mj_setKeyframe(mjModel* m, const mjData* d, int k) {
 //-------------------------- inertia functions -----------------------------------------------------
 
 // convert sparse inertia matrix M into full matrix
-void mj_fullM(const mjModel* m, mjtNum* dst, const mjtNum* M) {
-  int adr = 0, nv = m->nv;
-  mju_zero(dst, nv*nv);
-
-  for (int i=0; i < nv; i++) {
-    int j = i;
-    while (j >= 0) {
-      dst[i*nv+j] = M[adr];
-      dst[j*nv+i] = M[adr];
-      j = m->dof_parentid[j];
-      adr++;
-    }
-  }
+void mj_fullM(const mjModel* m, const mjData* d, mjtNum* dst) {
+  mju_sym2dense(dst, d->M, m->nv, m->M_rownnz, m->M_rowadr, m->M_colind);
 }
 
 
@@ -552,7 +542,7 @@ static mjtNum mj_geomDistanceCCD(const mjModel* m, mjData* d, int g1, int g2,
 // returns the smallest distance between two geoms
 mjtNum mj_geomDistance(const mjModel* m, mjData* d, int geom1, int geom2, mjtNum distmax,
                        mjtNum fromto[6]) {
-  mjContact con[mjMAXCONPAIR];
+  mjPreContact con[mjMAXCONPAIR];
   mjtNum dist = distmax;
   if (fromto) mju_zero(fromto, 6);
 
@@ -593,8 +583,8 @@ mjtNum mj_geomDistance(const mjModel* m, mjData* d, int geom1, int geom2, mjtNum
   // write fromto if given and a collision has been found
   if (fromto && smallest >= 0) {
     mjtNum sign = flip ? -1 : 1;
-    mju_addScl3(fromto+0, con[smallest].pos, con[smallest].frame, -0.5*sign*dist);
-    mju_addScl3(fromto+3, con[smallest].pos, con[smallest].frame, 0.5*sign*dist);
+    mju_addScl3(fromto+0, con[smallest].pos, con[smallest].normal, -0.5*sign*dist);
+    mju_addScl3(fromto+3, con[smallest].pos, con[smallest].normal, 0.5*sign*dist);
   }
 
   return dist;

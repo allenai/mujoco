@@ -67,7 +67,6 @@ struct mjrLight {};
 struct mjrRenderable {};
 struct mjrRenderTarget {};
 
-
 // ## Rendering Context (mjrfContext)
 //
 // The Context is the main entry point for the library. It manages all the
@@ -130,14 +129,14 @@ void mjrf_destroyContext(mjrfContext* ctx);
 typedef enum mjrDrawMode_ {
   // Render the scene with "normal" colors and lighting.
   mjDRAW_MODE_COLOR,
+  // Render the scene as a wireframe.
+  mjDRAW_MODE_WIREFRAME,
   // Render the scene as a grayscale depth map.
   mjDRAW_MODE_DEPTH,
   // Render each object with a unique, uniform (flat) color regardless of
   // lighting and texture.
   mjDRAW_MODE_SEGMENTATION,
 } mjrDrawMode;
-
-enum { mjNUM_DRAW_MODES = 3 };  // Number of modes in `mjrDrawMode`.
 
 // Parameters describing the camera to use for rendering an image.
 typedef mjvGLCamera mjrCamera;
@@ -150,9 +149,6 @@ struct mjrRenderRequest {
   // The camera from which to render the scene.
   mjrCamera camera;
 
-  // The method (e.g. Color, Depth, Segmentation, etc.) to use for rendering.
-  mjrDrawMode draw_mode;
-
   // The viewport into which to render the image.
   mjrRect viewport;
 
@@ -160,6 +156,18 @@ struct mjrRenderRequest {
   // will be rendered to the window (as previously configured in
   // mjrFilamentConfig::native_window).
   mjrRenderTarget* target;
+
+  // The method (e.g. Color, Depth, Segmentation, etc.) to use for rendering.
+  mjrDrawMode draw_mode;
+
+  // Whether or not to enable post processing; enabled by default.
+  mjtByte enable_post_processing;
+
+  // Whether or not to enable reflections; enabled by default.
+  mjtByte enable_reflections;
+
+  // Whether or not to enable shadows; enabled by default.
+  mjtByte enable_shadows;
 };
 
 // Initializes the mjrRenderRequest to default values.
@@ -210,6 +218,9 @@ mjrFrameHandle mjrf_render(mjrfContext* ctx, const mjrRenderRequest* req,
 // Waits for all rendering operations to complete for the given frame handle,
 // triggering any callbacks as needed.
 void mjrf_waitForFrame(mjrfContext* ctx, mjrFrameHandle frame);
+
+// Sets the clear color for the renderer.
+void mjrf_setClearColor(mjrfContext* ctx, const float color[3]);
 
 // Information about a single frame of rendering.
 struct mjrFrameStats {
@@ -446,15 +457,6 @@ void mjrf_destroyMesh(mjrMesh* mesh);
 
 // Configuration parameters for a Scene.
 struct mjrSceneParams {
-  // Whether or not to enable post processing; enabled by default.
-  mjtByte enable_post_processing;
-
-  // Whether or not to enable reflections; enabled by default.
-  mjtByte enable_reflections;
-
-  // Whether or not to enable shadows; enabled by default.
-  mjtByte enable_shadows;
-
   // This mask, in conjunction with the layer mask in the Renderable, determines
   // which Renderables to render within the Scene.
   uint8_t layer_mask;
@@ -487,12 +489,6 @@ void mjrf_removeRenderableFromScene(mjrScene* scene, mjrRenderable* renderable);
 // Sets the skybox (cube texture) for the scene.
 void mjrf_setSceneSkybox(mjrScene* scene, const mjrTexture* texture);
 
-// Enables (or disables) shadows in the scene.
-void mjrf_setSceneShadowsEnabled(mjrScene* scene, mjtByte enabled);
-
-// Enables (or disables) reflections in the scene.
-void mjrf_setSceneReflectionsEnabled(mjrScene* scene, mjtByte enabled);
-
 // Configures the scene based on the parameters in an mjModel.
 void mjrf_configureSceneFromModel(mjrScene* scene, const mjModel* model);
 
@@ -523,22 +519,31 @@ typedef mjtLightType mjrLightType;
 struct mjrLightParams {
   // The type of light (e.g. spot, point, directional, etc.)
   mjrLightType type;
+
   // The texture to use for image lights.
   const mjrTexture* texture;
+
   // The color of the light.
   float color[3];
+
   // The intensity of the light, in candela.
   float intensity;
+
   // Whether or not the light casts shadows.
   mjtByte cast_shadows;
+
   // The range/distance in which the light is effective, in meters.
   float range;
+
   // The angle of the spot light cone, in degrees.
   float spot_cone_angle;
+
   // The radius of the bulb used for soft shadows.
   float bulb_radius;
+
   // The size of the shadow map.
   int shadow_map_size;
+
   // Blur width for EL VSM.
   float vsm_blur_width;
 };
@@ -591,7 +596,7 @@ struct mjrMaterial {
   float color[4];
 
   // The color to use for segmentation rendering. Defaults to white.
-  float segmentation_color[4];
+  mjtByte segmentation_color[3];
 
   // Applies an addition scale to the UV coordinates of the object. Defaults to
   // (1, 1, 1).
@@ -615,8 +620,6 @@ struct mjrMaterial {
   // The emissive (glow) factor of the object.
   float emissive;
 
-  // Whether or not the object is a reflective surface. Only applies to planes.
-  mjtByte reflective;
   // The blend factor to use for reflective surfaces. A value of 1.0 means that
   // the surface is fully reflective (i.e. a mirror).
   float reflectance;
@@ -627,6 +630,9 @@ struct mjrMaterial {
 
   // The texture containing the base color of the object.
   const mjrTexture* color_texture;
+
+  // The texture containing the opacity of the object.
+  const mjrTexture* opacity_texture;
 
   // The normal map of the object.
   const mjrTexture* normal_texture;
@@ -658,15 +664,19 @@ void mjr_defaultMaterial(mjrMaterial* material);
 struct mjrRenderableParams {
   // Whether or not the Renderable casts shadows.
   mjtByte cast_shadows;
+
   // Whether or not the Renderable receives shadows.
   mjtByte receive_shadows;
+
   // The layers to which the Renderable belongs. This mask is used in
   // conjunction with the layer mask in the Scene to determine which
   // Renderables to render. Defaults to 0xff.
   uint8_t layer_mask;
+
   // Controls the order in which the Renderable is drawn relative to other
   // Renderables; defaults to 4.
   uint8_t priority;
+
   // Similar to priority, but provides finer-grained control for Renderables
   // with transparency; defaults to 0.
   uint16_t blend_order;
@@ -696,26 +706,20 @@ void mjrf_setRenderableGeomMesh(mjrRenderable* renderable, mjtGeom type,
 void mjrf_setRenderableMaterial(mjrRenderable* renderable,
                                 const mjrMaterial* material);
 
-// Sets the transform (position, rotation, and size) of the renderable. Note
-// that `size` is not the same as `scale`. For example, the z-size of a capsule
-// only scales the tubular-portion of its geometry, but not the spherical caps.
+// Copies the material properties of the renderable into the given mjrMaterial.
+void mjrf_getRenderableMaterial(mjrRenderable* renderable,
+                                mjrMaterial* material);
+
+// Sets the transform position and rotation of the renderable.
 void mjrf_setRenderableTransform(mjrRenderable* renderable,
                                  const float position[3],
-                                 const float rotation[9], const float size[3]);
+                                 const float rotation[9]);
 
-// Sets whether the renderable casts shadows or not.
-void mjrf_setRenderableCastShadows(mjrRenderable* renderable,
-                                   mjtByte cast_shadows);
-
-// Sets whether the renderable receives shadows or not.
-void mjrf_setRenderableReceiveShadows(mjrRenderable* renderable,
-                                      mjtByte receive_shadows);
-
-// Forces the renderable to be rendered using lines.
-void mjrf_setRenderableWireframe(mjrRenderable* renderable, mjtByte wireframe);
-
-// Sets the layer mask of the renderable. See mjrRenderableParams for details.
-void mjrf_setRenderableLayerMask(mjrRenderable* renderable, uint8_t layer_mask);
+// Sets the size of the renderable. Note that, for most renderables, this is
+// equivalent to setting the scale. However, for some geom-based renderables,
+// the size scale is not applied uniformly (e.g. the spherical ends of a
+// capsule are scaled such that they always remain spherical).
+void mjrf_setRenderableSize(mjrRenderable* renderable, const float size[3]);
 
 // ## Render Targets (mjrRenderTarget)
 //
@@ -727,10 +731,13 @@ void mjrf_setRenderableLayerMask(mjrRenderable* renderable, uint8_t layer_mask);
 struct mjrRenderTargetConfig {
   // The width of the render target.
   int width;
+
   // The height of the render target.
   int height;
+
   // The format of the color buffer in the render target.
   mjrPixelFormat color_format;
+
   // The format of the depth buffer in the render target.
   mjrPixelFormat depth_format;
 };
@@ -750,40 +757,6 @@ void mjrf_destroyRenderTarget(mjrRenderTarget* render_target);
 // Draws an ImGui editor for the given scene, exposing filament-specific
 // settings.
 void mjrf_DEBUG_drawImguiEditor(mjrScene* scene);
-
-// Legacy API, to be deprecated.
-
-void mjrf_defaultFilamentConfig(mjrFilamentConfig* config);
-
-void mjrf_makeFilamentContext(const mjModel* m, mjrContext* con,
-                              const mjrFilamentConfig* config);
-
-void mjrf_defaultContext(mjrContext* con);
-
-void mjrf_makeContext(const mjModel* m, mjrContext* con, int fontscale);
-
-void mjrf_freeContext(mjrContext* con);
-
-void mjrf_renderScene(mjrRect viewport, mjvScene* scn, const mjrContext* con);
-
-void mjrf_uploadMesh(const mjModel* m, const mjrContext* con, int meshid);
-
-void mjrf_uploadTexture(const mjModel* m, const mjrContext* con, int texid);
-
-void mjrf_uploadHField(const mjModel* m, const mjrContext* con, int hfieldid);
-
-void mjrf_setBuffer(int framebuffer, mjrContext* con);
-
-void mjrf_readPixels(unsigned char* rgb, float* depth, mjrRect viewport,
-                     const mjrContext* con);
-
-double mjrf_getFrameRate(const mjrContext* con);
-
-uintptr_t mjrf_uploadGuiImage(uintptr_t tex_id, const unsigned char* pixels,
-                              int width, int height, int bpp,
-                              const mjrContext* con);
-
-void mjrf_updateGui(const mjrContext* con);
 
 #if defined(__cplusplus)
 }  // extern "C"

@@ -38,11 +38,11 @@ class ModelObjects {
   void CreateSkinFlexMesh(const mjvScene* scene, const mjvGeom& geom);
 
   // Returns the cached instance of a filament object created from the mjModel.
-  const mjrMesh* GetMeshBuffer(int data_id) const;
-  const mjrMesh* GetHeightFieldBuffer(int hfield_id) const;
-  const mjrMesh* GetFlexSkinGeomMesh(int geom_id) const;
+  const mjrMesh* GetMesh(int data_id) const;
+  const mjrMesh* GetHeightField(int hfield_id) const;
+  const mjrMesh* GetSkinMesh(int geom_id) const;
+  const mjrMesh* GetFlexMesh(int geom_id) const;
   const mjrTexture* GetTexture(int tex_id) const;
-  const mjrTexture* GetTexture(int mat_id, int role) const;
   const mjrTexture* GetSkyboxTexture() const;
 
   float GetSpecularMultiplier() const { return specular_multiplier_; }
@@ -60,7 +60,8 @@ class ModelObjects {
   std::unordered_map<int, UniquePtr<mjrMesh>> meshes_;
   std::unordered_map<int, UniquePtr<mjrMesh>> convex_hulls_;
   std::unordered_map<int, UniquePtr<mjrMesh>> height_fields_;
-  std::unordered_map<int, UniquePtr<mjrMesh>> dynamic_meshes_;
+  std::unordered_map<int, UniquePtr<mjrMesh>> skins_;
+  std::unordered_map<int, UniquePtr<mjrMesh>> flexes_;
   std::unordered_map<int, UniquePtr<mjrTexture>> textures_;
   float specular_multiplier_ = 0.2f;
   float shininess_multiplier_ = 0.1f;

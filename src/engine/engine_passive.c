@@ -267,11 +267,30 @@ static void mj_flexPassiveBendInterp(const mjModel* m, mjData* d, int f,
   mju_zero(frc_g, 3*nodenum);
   mju_zero(dmp_g, 3*nodenum);
 
-  // per-face temporaries
+  // precompute per-face cache: each face appears in multiple bending edges,
+  // so caching avoids redundant position gathering and quaternion computation
+  int nfaces = 2*(cy*cz + cx*cz + cx*cy);
+  mjtNum* face_xpos = mjSTACKALLOC(d, nfaces * 3*npe, mjtNum);
+  int* face_gidx = mjSTACKALLOC(d, nfaces * npe, int);
+  mjtNum* face_quat = mjSTACKALLOC(d, nfaces * 4, mjtNum);
+  for (int fi = 0; fi < nfaces; fi++) {
+    mju_flexGatherFaceState(order, cx, cy, cz, fi, xpos_g,
+                            NULL, NULL,
+                            face_xpos + fi * 3*npe, NULL, NULL,
+                            face_gidx + fi * npe, face_quat + fi * 4);
+  }
+
+  // check cached node indices are in bounds
+  for (int i = 0; i < nfaces * npe; i++) {
+    if (face_gidx[i] < 0 || face_gidx[i] >= nodenum) {
+      mjERROR("cached node index out of range: face_gidx[%d]=%d, nodenum=%d",
+              i, face_gidx[i], nodenum);
+    }
+  }
+
+  // per-edge temporaries
   mjtNum* xpos_A = mjSTACKALLOC(d, 3*npe, mjtNum);
   mjtNum* xpos_B = mjSTACKALLOC(d, 3*npe, mjtNum);
-  mjtNum* vel_A = mjSTACKALLOC(d, 3*npe, mjtNum);
-  mjtNum* vel_B = mjSTACKALLOC(d, 3*npe, mjtNum);
   int* gidx_A = mjSTACKALLOC(d, npe, int);
   int* gidx_B = mjSTACKALLOC(d, npe, int);
 
@@ -291,15 +310,15 @@ static void mj_flexPassiveBendInterp(const mjModel* m, mjData* d, int f,
 
     if (stiffness == 0) continue;
 
-    // gather face A and B positions + velocities
-    mju_flexGatherFaceState(order, cx, cy, cz, fe_A, xpos_g,
-                            enbl_damper ? vel_g : NULL, NULL,
-                            xpos_A, enbl_damper ? vel_A : NULL, NULL,
-                            gidx_A, NULL);
-    mju_flexGatherFaceState(order, cx, cy, cz, fe_B, xpos_g,
-                            enbl_damper ? vel_g : NULL, NULL,
-                            xpos_B, enbl_damper ? vel_B : NULL, NULL,
-                            gidx_B, NULL);
+    // look up cached face data instead of recomputing
+    mju_copy(xpos_A, face_xpos + fe_A * 3*npe, 3*npe);
+    mju_copy(xpos_B, face_xpos + fe_B * 3*npe, 3*npe);
+    mju_copyInt(gidx_A, face_gidx + fe_A * npe, npe);
+    mju_copyInt(gidx_B, face_gidx + fe_B * npe, npe);
+    mjtNum quat_A[4], quat_B[4];
+    mju_copy(quat_A, face_quat + fe_A * 4, 4);
+    mju_copy(quat_B, face_quat + fe_B * 4, 4);
+
 
     // compute deformed normals at edge midpoint
     mjtNum n_A[3], t1_A[3], t2_A[3];
@@ -316,10 +335,26 @@ static void mj_flexPassiveBendInterp(const mjModel* m, mjData* d, int f,
     n_A[0] *= inv_A; n_A[1] *= inv_A; n_A[2] *= inv_A;
     n_B[0] *= inv_B; n_B[1] *= inv_B; n_B[2] *= inv_B;
 
-    // normal jump residual: r = (n_A - n_B) - dn0
+    // average corotational frame: symmetric under face swap
+    // quat_A and quat_B encode R^{-1}; average them, then negate to get R_avg
+    // ensure quaternions are in the same hemisphere before averaging
+    if (mju_dot(quat_A, quat_B, 4) < 0) {
+      mju_scl(quat_B, quat_B, -1, 4);
+    }
+    mjtNum quat_avg[4];
+    mju_add(quat_avg, quat_A, quat_B, 4);
+    mju_normalize(quat_avg, 4);  // NLERP = SLERP at t=0.5 for two quaternions
+    // negate to get R_avg (from rest frame to current frame)
+    mju_negQuat(quat_avg, quat_avg);
+
+    // rotate dn0 from rest frame to current frame using average corotational R
+    mjtNum dn0_rot[3];
+    mju_rotVecQuat(dn0_rot, dn0, quat_avg);
+
+    // normal jump residual: r = (n_A - n_B) - R_avg * dn0
     mjtNum r[3];
     mji_sub3(r, n_A, n_B);
-    r[0] -= dn0[0]; r[1] -= dn0[1]; r[2] -= dn0[2];
+    r[0] -= dn0_rot[0]; r[1] -= dn0_rot[1]; r[2] -= dn0_rot[2];
 
     // --- spring force ---
     if (enbl_spring) {

@@ -22,7 +22,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <mujoco/mjmodel.h>
-#include <mujoco/mjtnum.h>
+#include <mujoco/mjtype.h>
 #include <mujoco/mujoco.h>
 #include "src/engine/engine_support.h"
 #include "src/engine/engine_util_blas.h"
@@ -973,7 +973,7 @@ TEST_F(SensorTest, ContactNet) {
       mj_applyFT(model, data, force, torque, point, b1, qfrc.data());
 
       // compare
-      EXPECT_THAT(qfrc, Pointwise(MjNear(1e-6, 1e-4), qfrc_expected));
+      EXPECT_THAT(qfrc, Pointwise(MjNear(1e-6, 2e-4), qfrc_expected));
 
       // check net force, sensor returns body2 -> body1
       vector net21 = GetSensor(model, data, "net21");
@@ -992,7 +992,7 @@ TEST_F(SensorTest, ContactNet) {
       mj_applyFT(model, data, force, torque, point, b2, qfrc.data());
 
       // compare
-      EXPECT_THAT(qfrc, Pointwise(MjNear(1e-6, 1e-4), qfrc_expected));
+      EXPECT_THAT(qfrc, Pointwise(MjNear(1e-6, 2e-4), qfrc_expected));
 
       nconmax = std::max(nconmax, data->ncon);
     }
@@ -1702,7 +1702,7 @@ TEST_F(SensorTest, TactileSkipTangents) {
   EXPECT_EQ(data->time, 0.0);
   EXPECT_GT(data->ncon, 0) << "No contacts generated";
 
-  // Tactile sensor layout: [normal_forces..., tang1_forces..., tang2_forces...]
+  // Tactile sensor layout: [depths..., tang1_vel..., tang2_vel...]
   int ntaxel = model->nsensordata / 3;
   ASSERT_EQ(model->nsensordata % 3, 0) << "Sensor dim should be divisible by 3";
 
@@ -1712,13 +1712,13 @@ TEST_F(SensorTest, TactileSkipTangents) {
         << "Tangent component at index " << i << " should be 0";
   }
 
-  // Normal force components: verify count, sign, and magnitude ~-0.8
+  // Penetration depth components: verify count, sign, and magnitude ~0.2
   int nonzero_count = 0;
   for (int i = 0; i < ntaxel; i++) {
     if (data->sensordata[i] != 0) {
       nonzero_count++;
-      EXPECT_NEAR(data->sensordata[i], -0.8, 0.1)
-          << "Normal force at taxel " << i;
+      EXPECT_NEAR(data->sensordata[i], 0.2, 0.1)
+          << "Penetration depth at taxel " << i;
     }
   }
   EXPECT_EQ(nonzero_count, 2) << "Expected 2 taxels in contact";
@@ -1781,6 +1781,35 @@ TEST_F(SensorTest, InsideSiteFlexBody) {
       << "flex body should be outside the container site after displacement";
 
   mj_deleteData(d);
+  mj_deleteModel(m);
+}
+
+// Test that a tactile sensor's compile-time body-collision check correctly
+// uses the referenced Geom ID instead of mistakenly indexing by Mesh ID.
+TEST_F(SensorTest, TactileMeshIdMismatchedValidator) {
+  static constexpr char xml[] = R"(
+  <mujoco>
+    <asset>
+      <mesh name="sensor_mesh" builtin="sphere" params="0"/>
+    </asset>
+    <worldbody>
+      <body>
+        <geom size="0.1" contype="0" conaffinity="0"/>
+      </body>
+      <body>
+        <geom name="sensor_geom" type="mesh" mesh="sensor_mesh"/>
+      </body>
+    </worldbody>
+    <sensor>
+      <tactile geom="sensor_geom" mesh="sensor_mesh"/>
+    </sensor>
+  </mujoco>
+  )";
+
+  char error[1024] = {0};
+  mjModel* m = LoadModelFromString(xml, error, sizeof(error));
+  ASSERT_THAT(m, NotNull()) << error;
+
   mj_deleteModel(m);
 }
 

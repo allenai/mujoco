@@ -21,10 +21,7 @@
 #include <math/mat3.h>
 #include <math/vec3.h>
 #include <mujoco/mjmodel.h>
-#include <mujoco/mjrender.h>
-#include <mujoco/mjvisualize.h>
 #include <mujoco/mujoco.h>
-#include "experimental/filament/compat/mjr_filament_renderer.h"
 #include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/light.h"
 #include "experimental/filament/filament/mesh.h"
@@ -33,26 +30,12 @@
 #include "experimental/filament/filament/scene_view.h"
 #include "experimental/filament/filament/texture.h"
 
-
-#if defined(TLS_FILAMENT_CONTEXT)
-static thread_local mujoco::MjrFilamentRenderer* g_filament_context = nullptr;
-#else
-static mujoco::MjrFilamentRenderer* g_filament_context = nullptr;
-#endif
-
-static void CheckFilamentContext() {
-  if (g_filament_context == nullptr) {
-    mju_error("Missing context; did you call mjrf_makeFilamentContext?");
-  }
-}
-
 template <int N>
 static void setf(float (&arr)[N], const std::array<float, N>& values) {
   for (int i = 0; i < N; ++i) {
     arr[i] = values[i];
   }
 }
-
 
 extern "C" {
 
@@ -74,9 +57,6 @@ void mjr_defaultMeshData(mjrMeshData* data) {
 
 void mjr_defaultSceneParams(mjrSceneParams* params) {
   memset(params, 0, sizeof(mjrSceneParams));
-  params->enable_post_processing = true;
-  params->enable_reflections = true;
-  params->enable_shadows = true;
   params->layer_mask = 0xff;
   params->reflection_layer_mask = 0xff;
 }
@@ -100,8 +80,10 @@ void mjr_defaultLightParams(mjrLightParams* params) {
 void mjr_defaultMaterial(mjrMaterial* material) {
   memset(material, 0, sizeof(mjrMaterial));
   setf(material->color, {1.f, 1.f, 1.f, 1.f});
-  setf(material->segmentation_color, {1, 1, 1, 1});
   setf(material->uv_scale, {1, 1, 1});
+  material->segmentation_color[0] = 255;
+  material->segmentation_color[1] = 255;
+  material->segmentation_color[2] = 255;
   material->emissive = -1.0f;
   material->specular = -1.0f;
   material->glossiness = -1.0f;
@@ -126,6 +108,9 @@ void mjr_defaultRenderTargetConfig(mjrRenderTargetConfig* config) {
 
 void mjr_defaultRenderRequest(mjrRenderRequest* request) {
   memset(request, 0, sizeof(mjrRenderRequest));
+  request->enable_post_processing = true;
+  request->enable_reflections = true;
+  request->enable_shadows = true;
 }
 
 void mjr_defaultReadPixelsRequest(mjrReadPixelsRequest* request) {
@@ -162,7 +147,8 @@ mjrMesh* mjrf_createMesh(mjrfContext* ctx, const mjrMeshData* data) {
 void mjrf_destroyMesh(mjrMesh* mesh) { delete mujoco::Mesh::downcast(mesh); }
 
 mjrScene* mjrf_createScene(mjrfContext* ctx, const mjrSceneParams* params) {
-  return new mujoco::SceneView(mujoco::FilamentContext::downcast(ctx), *params);
+  return new mujoco::SceneView(
+      mujoco::FilamentContext::downcast(ctx)->GetEngine(), *params);
 }
 
 void mjrf_destroyScene(mjrScene* scene) {
@@ -170,7 +156,8 @@ void mjrf_destroyScene(mjrScene* scene) {
 }
 
 mjrLight* mjrf_createLight(mjrfContext* ctx, const mjrLightParams* params) {
-  return new mujoco::Light(mujoco::FilamentContext::downcast(ctx), *params);
+  return new mujoco::Light(mujoco::FilamentContext::downcast(ctx)->GetEngine(),
+                           *params);
 }
 
 void mjrf_destroyLight(mjrLight* light) {
@@ -179,8 +166,9 @@ void mjrf_destroyLight(mjrLight* light) {
 
 mjrRenderable* mjrf_createRenderable(mjrfContext* ctx,
                                      const mjrRenderableParams* params) {
-  return new mujoco::Renderable(mujoco::FilamentContext::downcast(ctx),
-                                *params);
+  return new mujoco::Renderable(
+      mujoco::FilamentContext::downcast(ctx)->GetEngine(), *params,
+      mujoco::FilamentContext::downcast(ctx)->GetObjectManager());
 }
 
 void mjrf_destroyRenderable(mjrRenderable* renderable) {
@@ -257,35 +245,25 @@ void mjrf_setRenderableMaterial(mjrRenderable* renderable,
   mujoco::Renderable::downcast(renderable)->UpdateMaterial(*material);
 }
 
+void mjrf_getRenderableMaterial(mjrRenderable* renderable,
+                                mjrMaterial* material) {
+  *material = mujoco::Renderable::downcast(renderable)->GetMaterial();
+}
+
 void mjrf_setRenderableTransform(mjrRenderable* renderable,
                                  const float position[3],
-                                 const float rotation[9], const float size[3]) {
+                                 const float rotation[9]) {
   const filament::math::float3 fposition{position[0], position[1], position[2]};
-  const filament::math::float3 fsize{size[0], size[1], size[2]};
   const filament::math::mat3f frotation{rotation[0], rotation[3], rotation[6],
                                         rotation[1], rotation[4], rotation[7],
                                         rotation[2], rotation[5], rotation[8]};
   mujoco::Renderable::downcast(renderable)
-      ->SetTransform({fposition, frotation, fsize});
+      ->SetTransform(fposition, frotation);
 }
 
-void mjrf_setRenderableLayerMask(mjrRenderable* renderable,
-                                 uint8_t layer_mask) {
-  mujoco::Renderable::downcast(renderable)->SetLayerMask(layer_mask);
-}
-
-void mjrf_setRenderableWireframe(mjrRenderable* renderable, mjtByte wireframe) {
-  mujoco::Renderable::downcast(renderable)->SetWireframe(wireframe);
-}
-
-void mjrf_setRenderableCastShadows(mjrRenderable* renderable,
-                                   mjtByte cast_shadows) {
-  mujoco::Renderable::downcast(renderable)->SetCastShadows(cast_shadows);
-}
-
-void mjrf_setRenderableReceiveShadows(mjrRenderable* renderable,
-                                      mjtByte receive_shadows) {
-  mujoco::Renderable::downcast(renderable)->SetReceiveShadows(receive_shadows);
+void mjrf_setRenderableSize(mjrRenderable* renderable, const float size[3]) {
+  const filament::math::float3 fsize{size[0], size[1], size[2]};
+  mujoco::Renderable::downcast(renderable)->SetSize(fsize);
 }
 
 void mjrf_addLightToScene(mjrScene* scene, mjrLight* light) {
@@ -314,22 +292,6 @@ void mjrf_setSceneSkybox(mjrScene* scene, const mjrTexture* texture) {
       mujoco::Texture::downcast(texture));
 }
 
-void mjrf_setSceneShadowsEnabled(mjrScene* scene, mjtByte enabled) {
-  if (enabled) {
-    mujoco::SceneView::downcast(scene)->EnableShadows();
-  } else {
-    mujoco::SceneView::downcast(scene)->DisableShadows();
-  }
-}
-
-void mjrf_setSceneReflectionsEnabled(mjrScene* scene, mjtByte enabled) {
-  if (enabled) {
-    mujoco::SceneView::downcast(scene)->EnableReflections();
-  } else {
-    mujoco::SceneView::downcast(scene)->DisableReflections();
-  }
-}
-
 void mjrf_configureSceneFromModel(mjrScene* scene, const mjModel* model) {
   mujoco::SceneView::downcast(scene)->Configure(model);
 }
@@ -346,93 +308,13 @@ void mjrf_waitForFrame(mjrfContext* ctx, mjrFrameHandle frame) {
   mujoco::FilamentContext::downcast(ctx)->WaitForFrame(frame);
 }
 
+void mjrf_setClearColor(mjrfContext* ctx, const float color[3]) {
+  mujoco::FilamentContext::downcast(ctx)->SetClearColor(
+      {color[0], color[1], color[2], 1.0f});
+}
+
 void mjrf_getFrameStats(mjrfContext* ctx, mjrFrameHandle frame,
                         mjrFrameStats* stats_out) {
   mujoco::FilamentContext::downcast(ctx)->GetFrameStats(frame, stats_out);
 }
-
-// Legacy API, to be deprecated.
-
-void mjrf_makeFilamentContext(const mjModel* m, mjrContext* con,
-                              const mjrFilamentConfig* config) {
-  // TODO: Support multiple contexts and multiple threads. For now, we'll just
-  // assume a single, global context.
-  if (g_filament_context != nullptr) {
-    mju_error("Context already exists!");
-  }
-  g_filament_context = new mujoco::MjrFilamentRenderer(config);
-  g_filament_context->Init(m);
-}
-
-void mjrf_defaultContext(mjrContext* con) {
-  memset(con, 0, sizeof(mjrContext));
-}
-
-void mjrf_makeContext(const mjModel* m, mjrContext* con, int fontscale) {
-  mjrf_freeContext(con);
-  mjrFilamentConfig cfg;
-  mjrf_defaultFilamentConfig(&cfg);
-  cfg.width = m->vis.global.offwidth;
-  cfg.height = m->vis.global.offheight;
-  mjrf_makeFilamentContext(m, con, &cfg);
-}
-
-void mjrf_freeContext(mjrContext* con) {
-  // mjr_freeContext may be called multiple times.
-  if (g_filament_context) {
-    delete g_filament_context;
-    g_filament_context = nullptr;
-  }
-  mjrf_defaultContext(con);
-}
-
-void mjrf_renderScene(mjrRect viewport, mjvScene* scn, const mjrContext* con) {
-  CheckFilamentContext();
-  g_filament_context->Render(viewport, scn);
-}
-
-void mjrf_uploadMesh(const mjModel* m, const mjrContext* con, int meshid) {
-  CheckFilamentContext();
-  g_filament_context->UploadMesh(m, meshid);
-}
-
-void mjrf_uploadTexture(const mjModel* m, const mjrContext* con, int texid) {
-  CheckFilamentContext();
-  g_filament_context->UploadTexture(m, texid);
-}
-
-void mjrf_uploadHField(const mjModel* m, const mjrContext* con, int hfieldid) {
-  CheckFilamentContext();
-  g_filament_context->UploadHeightField(m, hfieldid);
-}
-
-void mjrf_setBuffer(int framebuffer, mjrContext* con) {
-  CheckFilamentContext();
-  g_filament_context->SetFrameBuffer(framebuffer);
-}
-
-void mjrf_readPixels(unsigned char* rgb, float* depth, mjrRect viewport,
-                          const mjrContext* con) {
-  CheckFilamentContext();
-  g_filament_context->ReadPixels(viewport, rgb, depth);
-}
-
-uintptr_t mjrf_uploadGuiImage(uintptr_t tex_id, const unsigned char* pixels,
-                             int width, int height, int bpp,
-                             const mjrContext* con) {
-  CheckFilamentContext();
-  return g_filament_context->UploadGuiImage(tex_id, pixels, width, height, bpp);
-}
-
-double mjrf_getFrameRate(const mjrContext* con) {
-  CheckFilamentContext();
-  return g_filament_context->GetFrameRate();
-}
-
-void mjrf_updateGui(const mjrContext* con) {
-  if (g_filament_context != nullptr) {
-    g_filament_context->UpdateGui();
-  }
-}
-
 }  // extern "C"

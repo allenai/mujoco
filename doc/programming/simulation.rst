@@ -562,10 +562,9 @@ external force computed by inverse dynamics.
 Multi-threading
 ~~~~~~~~~~~~~~~
 
-MuJoCo has experimental support for within-step multi-threading. When a :ref:`mjThreadPool` is assigned to
-``mjData.threadpool``, parts of the simulation pipeline — such as collision detection and constraint solving across
-:ref:`islands<siSleep>` — can be distributed across worker threads. Note that within-step threading currently has
-significant memory overhead and is still a work in progress.
+MuJoCo has support for within-step multi-threading. When a thread pool is initialized via
+``mju_threadpool``, parts of the simulation pipeline — such as collision detection and constraint solving across
+:ref:`islands<siSleep>` — can be distributed across worker threads.
 
 The more common and well-supported use of multi-threading is to speed up sampling operations that are
 common in more advanced applications. Simulation is inherently serial over time (the output of one mj_step is the
@@ -1176,11 +1175,6 @@ which are initialized asleep. These can be placed in mid-air or in deep collisio
 Notes
 ^^^^^
 
-.. admonition:: Subject to change
-   :class: warning
-
-   Sleeping is a new feature (Nov 2025) that is subject to change and may have latent bugs.
-
 **Sleeping actuators**
   As explained in the :ref:`body/sleep <body-sleep>` documentation, trees with actuators are by default not allowed to
   sleep, but this can be overridden by the user. The reason sleeping is not allowed by default is that once an actuator
@@ -1268,13 +1262,6 @@ Notes
 
 **RK4 integrator**
   The RK4 integrator is not currently supported, due to the subtleties of waking inside the sub-steps.
-
-**Latent bugs**
-  Sleeping may have latent bugs. These bugs may generally come in two varieties:
-
-  - Quantities which could be skipped are instead recomputed. The only observable effect of such a bug would be that
-    the simulation is slower than it could be. This type of bug can only be diagnosed with detailed profiling.
-  - Actual bugs. Hopefully these will lead to informative runtime errors, please report any to the development team.
 
 
 .. _siCoordinate:

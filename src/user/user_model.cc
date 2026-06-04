@@ -16,7 +16,7 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <csetjmp>
 #include <cstdint>
@@ -41,7 +41,7 @@
 #include <mujoco/mjmodel.h>
 #include <mujoco/mjplugin.h>
 #include <mujoco/mjspec.h>
-#include <mujoco/mjtnum.h>
+#include <mujoco/mjtype.h>
 #include <mujoco/mujoco.h>
 #include "cc/array_safety.h"
 #include "engine/engine_core_util.h"
@@ -662,7 +662,6 @@ mjCModel& mjCModel::operator+=(mjCDef& subtree) {
 
 // remove default class from array
 mjCModel& mjCModel::operator-=(const mjCDef& subtree) {
-
   // check we aren't trying to remove the 'main' default
   if (subtree.id == 0) {
     throw mjCError(0, "cannot remove the global default ('main')");
@@ -922,7 +921,7 @@ void mjCModel::ComputeSparseSizes() {
 
   // 1. build dof_parentid, dof_bodyid
   if (nbody > 0) {
-    body_lastdof_map[0] = -1; // world has no parent dof
+    body_lastdof_map[0] = -1;  // world has no parent dof
   }
   for (int i = 0; i < nbody; ++i) {
     mjCBody* pb = bodies_[i];
@@ -961,7 +960,7 @@ void mjCModel::ComputeSparseSizes() {
   nD = 2 * nM - nv;
 
   // 4. compute subtreedofs and nB
-  for(int i = nbody - 1; i >= 0; --i) {
+  for (int i = nbody - 1; i >= 0; --i) {
     bodies_[i]->subtreedofs = bodies_[i]->dofnum;
     for (const auto* child : bodies_[i]->Bodies()) {
       bodies_[i]->subtreedofs += child->subtreedofs;
@@ -984,7 +983,7 @@ void mjCModel::ComputeSparseSizes() {
   }
 
   // 5. compute nC
-  for(int i = 0; i < nbody; ++i) {
+  for (int i = 0; i < nbody; ++i) {
     mjCBody* pb = bodies_[i];
     mjCBody* par = pb->parent;
     int parentid = par ? par->id : 0;
@@ -2801,8 +2800,8 @@ void mjCModel::CopyTree(mjModel* m) {
       // set joint fields
       m->jnt_type[jid] = pj->type;
       m->jnt_group[jid] = pj->group;
-      m->jnt_limited[jid] = (mjtByte)pj->is_limited();
-      m->jnt_actfrclimited[jid] = (mjtByte)pj->is_actfrclimited();
+      m->jnt_limited[jid] = (mjtBool)pj->is_limited();
+      m->jnt_actfrclimited[jid] = (mjtBool)pj->is_actfrclimited();
       m->jnt_actgravcomp[jid] = pj->actgravcomp;
       m->jnt_qposadr[jid] = pj->qposadr_;
       m->jnt_dofadr[jid] = pj->dofadr_;
@@ -3017,8 +3016,8 @@ void mjCModel::CopyTree(mjModel* m) {
       m->light_targetbodyid[lid] = pl->targetbodyid;
       m->light_type[lid] = pl->type;
       m->light_texid[lid] = pl->texid;
-      m->light_castshadow[lid] = (mjtByte)pl->castshadow;
-      m->light_active[lid] = (mjtByte)pl->active;
+      m->light_castshadow[lid] = (mjtBool)pl->castshadow;
+      m->light_active[lid] = (mjtBool)pl->active;
       mjuu_copyvec(m->light_pos+3*lid, pl->pos, 3);
       mjuu_copyvec(m->light_dir+3*lid, pl->dir, 3);
       m->light_bulbradius[lid] = pl->bulbradius;
@@ -3823,8 +3822,8 @@ void mjCModel::CopyObjects(mjModel* m) {
     m->tendon_num[i] = (int)pte->path.size();
     m->tendon_matid[i] = pte->matid;
     m->tendon_group[i] = pte->group;
-    m->tendon_limited[i] = (mjtByte)pte->is_limited();
-    m->tendon_actfrclimited[i] = (mjtByte)pte->is_actfrclimited();
+    m->tendon_limited[i] = (mjtBool)pte->is_limited();
+    m->tendon_actfrclimited[i] = (mjtBool)pte->is_actfrclimited();
     m->tendon_width[i] = (mjtNum)pte->width;
     mjuu_copyvec(m->tendon_solref_lim+mjNREF*i, pte->solref_limit, mjNREF);
     mjuu_copyvec(m->tendon_solimp_lim+mjNIMP*i, pte->solimp_limit, mjNIMP);
@@ -3892,9 +3891,9 @@ void mjCModel::CopyObjects(mjModel* m) {
       m->actuator_historyadr[i] = -1;
     }
 
-    m->actuator_ctrllimited[i] = (mjtByte)pac->is_ctrllimited();
-    m->actuator_forcelimited[i] = (mjtByte)pac->is_forcelimited();
-    m->actuator_actlimited[i] = (mjtByte)pac->is_actlimited();
+    m->actuator_ctrllimited[i] = (mjtBool)pac->is_ctrllimited();
+    m->actuator_forcelimited[i] = (mjtBool)pac->is_forcelimited();
+    m->actuator_actlimited[i] = (mjtBool)pac->is_actlimited();
     m->actuator_actearly[i] = pac->actearly;
     m->actuator_cranklength[i] = (mjtNum)pac->cranklength;
     mjuu_copyvec(m->actuator_gear + 6*i, pac->gear, 6);
@@ -4744,10 +4743,13 @@ static void CompileMesh(mjCMesh* mesh, const mjVFS* vfs,
 static void CompileTexture(mjCTexture* texture, const mjVFS* vfs,
                            std::exception_ptr& exception,
                            std::mutex& exception_mutex, std::string* warningtext) {
+  using Clock = std::chrono::steady_clock;
+  using Seconds = std::chrono::duration<double>;
   local_warningtext_ptr = warningtext;
   auto previous_handler = _mjPRIVATE__get_tls_warning_fn();
   _mjPRIVATE__set_tls_warning_fn(warninghandler);
 
+  Clock::time_point t0 = Clock::now();
   try {
     texture->Compile(vfs);
   } catch (...) {
@@ -4756,6 +4758,7 @@ static void CompileTexture(mjCTexture* texture, const mjVFS* vfs,
       exception = std::current_exception();
     }
   }
+  texture->texture_time_ = Seconds(Clock::now() - t0).count();
 
   _mjPRIVATE__set_tls_warning_fn(previous_handler);
   local_warningtext_ptr = nullptr;
@@ -4842,6 +4845,15 @@ void mjCModel::CompileMeshesAndTextures(const mjVFS* vfs) {
   }
   if (texture_exception) {
     std::rethrow_exception(texture_exception);
+  }
+
+  for (int i = 0; i < nmesh; i++) {
+    for (int t = 0; t < mjNCTIMER; t++) {
+      timer[t] += meshes_[i]->mesh_timer_[t];
+    }
+  }
+  for (int i = 0; i < ntexture; i++) {
+    timer[mjCTIMER_TEXTURE] += textures_[i]->texture_time_;
   }
 }
 
@@ -4984,6 +4996,12 @@ void mjCModel::TryCompile(mjModel*& m, mjData*& d, const mjVFS* vfs) {
   } disable_usethread(compiler.usethread);
 #endif
 
+  using Clock = std::chrono::steady_clock;
+  using Seconds = std::chrono::duration<double>;
+  for (int i=0; i < mjNCTIMER; i++) {
+    timer[i] = 0;
+  }
+  Clock::time_point timer_start = Clock::now();
   // check if nan test works
   double test = mjNAN;
   if (mjuu_defined(test)) {
@@ -5085,7 +5103,11 @@ void mjCModel::TryCompile(mjModel*& m, mjData*& d, const mjVFS* vfs) {
   SetNuser();
 
   // compile meshes and textures (needed for geom compilation)
-  CompileMeshesAndTextures(vfs);
+  {
+    Clock::time_point t0 = Clock::now();
+    CompileMeshesAndTextures(vfs);
+    timer[mjCTIMER_ASSETS] = Seconds(Clock::now() - t0).count();
+  }
 
   // compile objects in kinematic tree
   for (int i=0; i < bodies_.size(); i++) {
@@ -5358,6 +5380,8 @@ void mjCModel::TryCompile(mjModel*& m, mjData*& d, const mjVFS* vfs) {
 
   // save signature
   m->signature = Signature();
+
+  timer[mjCTIMER_TOTAL] = Seconds(Clock::now() - timer_start).count();
 
   // special cases that are not caused by user edits
   if (compiler.fusestatic || compiler.discardvisual ||

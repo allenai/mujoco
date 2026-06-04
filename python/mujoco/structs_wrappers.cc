@@ -535,6 +535,26 @@ std::unique_ptr<MjModelWrapper> MjModelWrapper::Deserialize(
   return std::unique_ptr<MjModelWrapper>(new MjModelWrapper(model));
 }
 
+// ==================== MJPRECONTACT ==========================================
+#define X(var) var(InitPyArray(ptr_->var, owner_))
+MjPreContactWrapper::MjWrapper()
+    : WrapperBase(new raw::MjPreContact{}),
+      X(pos),
+      X(normal),
+      X(tangent) {}
+
+MjPreContactWrapper::MjWrapper(raw::MjPreContact* ptr, py::handle owner)
+    : WrapperBase(ptr, owner),
+      X(pos),
+      X(normal),
+      X(tangent) {}
+#undef X
+
+MjPreContactWrapper::MjWrapper(const MjPreContactWrapper& other)
+    : MjPreContactWrapper() {
+  *this->ptr_ = *other.ptr_;
+}
+
 // ==================== MJCONTACT ==============================================
 #define X(var) var(InitPyArray(ptr_->var, owner_))
 MjContactWrapper::MjWrapper()
@@ -812,6 +832,7 @@ void MjDataWrapper::Serialize(std::ostream& output) const {
   X(ne);
   X(nf);
   X(nJ);
+  X(nY);
   X(nA);
   X(nefc);
   X(nisland);
@@ -891,6 +912,7 @@ MjDataWrapper MjDataWrapper::Deserialize(std::istream& input) {
   X(ne);
   X(nf);
   X(nJ);
+  X(nY);
   X(nA);
   X(nefc);
   X(nisland);

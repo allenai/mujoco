@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-include(third_party_deps/miniz)
 
 set(MUJOCO_MJZ_SRCS
     mjz_decoder.cc
+    mjz_encoder.cc
 )
 
 target_sources(mujoco PRIVATE ${MUJOCO_MJZ_SRCS})

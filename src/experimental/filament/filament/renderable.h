@@ -16,18 +16,23 @@
 #define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_RENDERABLE_H_
 
 #include <cstdint>
+#include <deque>
 #include <functional>
+#include <span>
+#include <unordered_map>
 #include <vector>
 
 #include <filament/Engine.h>
 #include <filament/Scene.h>
+#include <math/mat3.h>
 #include <math/mat4.h>
+#include <math/vec3.h>
 #include <utils/Entity.h>
 #include <mujoco/mujoco.h>
-#include "experimental/filament/filament_util.h"
-#include "experimental/filament/filament/filament_context.h"
+#include "experimental/filament/filament/material.h"
 #include "experimental/filament/filament/mesh.h"
 #include "experimental/filament/filament/object_manager.h"
+#include "experimental/filament/filament/reflection_manager.h"
 #include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
@@ -39,7 +44,8 @@ namespace mujoco {
 // on the surface).
 class Renderable : public mjrRenderable {
  public:
-  Renderable(FilamentContext* ctx, const mjrRenderableParams& params);
+  Renderable(filament::Engine* engine, const mjrRenderableParams& params,
+             ObjectManager* object_mgr);
   ~Renderable() noexcept;
 
   Renderable(const Renderable&) = delete;
@@ -53,8 +59,14 @@ class Renderable : public mjrRenderable {
   // Sets the mesh of this renderable to a built-in mesh based on the geom type.
   void SetGeomMesh(mjtGeom type, int nstack, int nslice, int nquad);
 
-  // Sets the transform of this renderable.
-  void SetTransform(const Trs& trs);
+  // Sets the position and rotation of this renderable.
+  void SetTransform(const filament::math::float3& position,
+                    const filament::math::mat3f& rotation);
+
+  // Sets the size of this renderable. Note: this is effectively the same as a
+  // scale for most renderables. However, for e.g. capsules, the spherical ends
+  // are not scaled and remain fixed in size.
+  void SetSize(const filament::math::float3& size);
 
   // Returns the current transform of this renderable.
   const filament::math::mat4f& GetTransform() const;
@@ -87,14 +99,18 @@ class Renderable : public mjrRenderable {
   // Removes this renderable from the filament Scene.
   void RemoveFromScene(filament::Scene* scene);
 
-  // Determines how this renderable will be drawn. See mjrDrawMode for details.
-  void SetDrawMode(mjrDrawMode mode);
-
   // Updates the parameters and textures of the material for this renderable.
   void UpdateMaterial(const mjrMaterial& material);
 
   // Returns this renderable's current material.
   const mjrMaterial& GetMaterial() const;
+
+  // Prepares the material instances for the given render requests.
+  void Prepare(std::span<const mjrRenderRequest*> requests,
+               ReflectionManager* reflection_mgr);
+
+  // Binds the material instance for the given render request.
+  void BindMaterialInstance(const mjrRenderRequest& request);
 
   static Renderable* downcast(mjrRenderable* renderable) {
     return static_cast<Renderable*>(renderable);
@@ -114,28 +130,57 @@ class Renderable : public mjrRenderable {
     int elem_count = 0;
   };
 
+  // A tuple of translation, rotation, and size.
+  struct Trs {
+    filament::math::float3 translation{0.0f, 0.0f, 0.0f};
+    filament::math::mat3f rotation;
+    filament::math::float3 size{1.0f, 1.0f, 1.0f};
+    filament::math::mat4f ToTransform() const {
+      return filament::math::mat4f(rotation, translation) *
+            filament::math::mat4f::scaling(size);
+    }
+  };
+
+  // For each render request in a batch, we may need to render the object
+  // differently. However, we cannot change the material instance during the
+  // actual frame rendering (i.e. between beginFrame/endFrame). Instead, we can
+  // switch out the material instance entirely for each request. We keep track
+  // of which instance, as well as other render state, to use with each render
+  // request.
+  struct DrawState {
+    MaterialKey material_key;
+    bool cast_shadows = true;
+    bool receive_shadows = true;
+    bool wireframe = false;
+  };
+
   // When composing a multi-part renderable, each Entity will have its own
   // transform offset based on the transform of the Renderable itself.
   using GetTransformFn = std::function<filament::math::mat4f(int, const Trs&)>;
 
   void AppendMesh(const Mesh* mesh);
   void InitPartEntity(Part& part);
+  void UpdateTransform();
 
-  ObjectManager::MaterialType GetColorMaterialType() const;
-  void AssignMaterial(mjrDrawMode mode,
-                      ObjectManager::MaterialType material_type);
+  MaterialKey PrepareMaterialInstance(const mjrMaterial& material,
+                                      mjrDrawMode draw_mode);
+  void SetMaterialInstance(MaterialKey key);
 
   filament::Engine* GetEngine();
 
   ObjectManager* object_mgr_;
   mjrRenderableParams params_;
-  filament::MaterialInstance* instances_[mjNUM_DRAW_MODES] = {nullptr};
+  mjtGeom geom_type_ = mjGEOM_NONE;
   mjrMaterial material_;
-  mjrDrawMode draw_mode_ = mjDRAW_MODE_COLOR;
+  std::unordered_map<MaterialKey, filament::MaterialInstance*> instances_;
+  std::deque<DrawState> draw_queue_;
+  DrawState curr_state_;
   filament::Scene* assigned_scene_ = nullptr;
   std::vector<Part> parts_;
   filament::math::mat4f transform_;
   GetTransformFn get_transform_fn_;
+  Trs trs_;
+  bool infinite_plane_ = false;
   bool wireframe_ = false;
 };
 

@@ -15,16 +15,28 @@
 #ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_MATERIAL_H_
 #define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_MATERIAL_H_
 
+#include <cstdint>
 #include <filament/Engine.h>
 #include <filament/MaterialInstance.h>
+#include "experimental/filament/filament/mesh.h"
 #include "experimental/filament/filament/object_manager.h"
 #include "experimental/filament/render_context_filament.h"
 
 namespace mujoco {
 
-// Updates the material instance using the given parameters and texture data. In
-// some cases where a material needs a texture, but a specific texture is not
-// provided, a default texture from the ObjectManager will be used instead.
+// Generates a hash for the given material (type) and material parameters.
+using MaterialKey = uint64_t;
+MaterialKey BuildMaterialKey(ObjectManager::MaterialType type,
+                             const mjrMaterial& material);
+
+// Returns a MaterialType that best matches the given material data and mesh.
+ObjectManager::MaterialType GetMaterialType(
+    const mjrMaterial& material, const Mesh* mesh);
+
+// Updates the material instance using the given parameters and texture
+// data. In some cases where a material needs a texture, but a specific
+// texture is not provided, a default texture from the ObjectManager will be
+// used instead.
 void UpdateMaterialInstance(filament::MaterialInstance* instance,
                             const mjrMaterial& material,
                             ObjectManager* object_mgr);

@@ -254,17 +254,17 @@ static void FillHeightFieldBuffer(MeshBuilder& builder, const mjModel* model,
   // Build the front edge.
   for (int col = 0; col < ncol - 1; ++col) {
     const float3 a = get_pos(0, col);
-    const float3 b = get_pos(0, col + 1);
-    const float3 c = {b.x, b.y, -sz[3]};
-    const float3 d = {a.x, a.y, -sz[3]};
+    const float3 b = {a.x, a.y, -sz[3]};
+    const float3 d = get_pos(0, col + 1);
+    const float3 c = {d.x, d.y, -sz[3]};
     append_quad(a, b, c, d);
   }
   // Build the back edge.
   for (int col = 0; col < ncol - 1; ++col) {
     const float3 a = get_pos(nrow - 1, col + 1);
-    const float3 b = get_pos(nrow - 1, col);
-    const float3 c = {b.x, b.y, -sz[3]};
-    const float3 d = {a.x, a.y, -sz[3]};
+    const float3 b = {a.x, a.y, -sz[3]};
+    const float3 d = get_pos(nrow - 1, col);
+    const float3 c = {d.x, d.y, -sz[3]};
     append_quad(a, b, c, d);
   }
   // Build the base. We use the visualization quality as the size rather than
@@ -599,10 +599,16 @@ void ModelObjects::CreateSkinFlexMesh(const mjvScene* scene, const mjvGeom& geom
   mjrMeshData data;
   mjr_defaultMeshData(&data);
   UpdateSkinFlexMeshData(&data, model_, scene, geom);
-  dynamic_meshes_.insert_or_assign(geom.objid, CreateMesh(ctx_, data));
+  if (geom.type == mjGEOM_FLEX) {
+    flexes_.insert_or_assign(geom.objid, CreateMesh(ctx_, data));
+  } else if (geom.type == mjGEOM_SKIN) {
+    skins_.insert_or_assign(geom.objid, CreateMesh(ctx_, data));
+  } else {
+    mju_error("Unsupported dynamic mesh type: %d", geom.type);
+  }
 }
 
-const mjrMesh* ModelObjects::GetMeshBuffer(int data_id) const {
+const mjrMesh* ModelObjects::GetMesh(int data_id) const {
   // As defined by mjv_updateScene:
   //   original mesh: mesh_id * 2
   //   convex hull: (mesh_id * 2) + 1
@@ -616,27 +622,36 @@ const mjrMesh* ModelObjects::GetMeshBuffer(int data_id) const {
   }
 }
 
-const mjrMesh* ModelObjects::GetHeightFieldBuffer(int hfield_id) const {
-  auto it = height_fields_.find(hfield_id);
-  return it != height_fields_.end() ? it->second.get() : nullptr;
+const mjrMesh* ModelObjects::GetHeightField(int hfield_id) const {
+  if (auto it = height_fields_.find(hfield_id); it != height_fields_.end()) {
+    return it->second.get();
+  }
+  mju_error("Unknown height field %d", hfield_id);
+  return nullptr;
 }
 
-const mjrMesh* ModelObjects::GetFlexSkinGeomMesh(int geom_id) const {
-  auto it = dynamic_meshes_.find(geom_id);
-  return it != dynamic_meshes_.end() ? it->second.get() : nullptr;
+const mjrMesh* ModelObjects::GetFlexMesh(int geom_id) const {
+  if (auto it = flexes_.find(geom_id); it != flexes_.end()) {
+    return it->second.get();
+  }
+  mju_error("Unknown flex mesh %d", geom_id);
+  return nullptr;
+}
+
+const mjrMesh* ModelObjects::GetSkinMesh(int geom_id) const {
+  if (auto it = skins_.find(geom_id); it != skins_.end()) {
+    return it->second.get();
+  }
+  mju_error("Unknown skin mesh %d", geom_id);
+  return nullptr;
 }
 
 const mjrTexture* ModelObjects::GetTexture(int tex_id) const {
-  auto it = textures_.find(tex_id);
-  return it != textures_.end() ? it->second.get() : nullptr;
-}
-
-const mjrTexture* ModelObjects::GetTexture(int mat_id, int role) const {
-  if (mat_id < 0 || mat_id >= model_->nmat || role < 0 || role >= mjNTEXROLE) {
-    return nullptr;
+  if (auto it = textures_.find(tex_id); it != textures_.end()) {
+    return it->second.get();
   }
-  const int tex_id = model_->mat_texid[mat_id * mjNTEXROLE + role];
-  return GetTexture(tex_id);
+  mju_error("Unknown texture %d", tex_id);
+  return nullptr;
 }
 
 const mjrTexture* ModelObjects::GetSkyboxTexture() const {

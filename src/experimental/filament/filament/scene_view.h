@@ -15,10 +15,9 @@
 #ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_VIEW_H_
 #define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_FILAMENT_SCENE_VIEW_H_
 
-#include <array>
 #include <memory>
+#include <span>
 #include <unordered_set>
-#include <vector>
 
 #include <filament/Camera.h>
 #include <filament/ColorGrading.h>
@@ -27,10 +26,9 @@
 #include <filament/View.h>
 #include <mujoco/mujoco.h>
 #include "experimental/filament/filament/color_grading_options.h"
-#include "experimental/filament/filament/filament_context.h"
 #include "experimental/filament/filament/light.h"
 #include "experimental/filament/filament/renderable.h"
-#include "experimental/filament/filament/render_target.h"
+#include "experimental/filament/filament/reflection_manager.h"
 #include "experimental/filament/filament/texture.h"
 #include "experimental/filament/render_context_filament.h"
 
@@ -43,7 +41,7 @@ namespace mujoco {
 // (e.g. normal, depth, segmentation, etc.) as well as reflective surfaces.
 class SceneView : public mjrScene {
  public:
-  SceneView(FilamentContext* ctx, const mjrSceneParams& params);
+  SceneView(filament::Engine* engine, const mjrSceneParams& params);
   ~SceneView();
 
   SceneView(const SceneView&) = delete;
@@ -56,35 +54,16 @@ class SceneView : public mjrScene {
   void RemoveFromScene(Renderable* renderable);
   void SetSkybox(const Texture* skybox_texture);
 
-  // Parameters for rendering the scene.
-  struct RenderRequest {
-    // The draw mode (e.g. normal, depth, segmentation) to render.
-    mjrDrawMode draw_mode = mjDRAW_MODE_COLOR;
-    // The target viewport for the rendered image.
-    mjrRect viewport;
-    // The camera from which to render the scene.
-    mjrCamera camera;
-    // An optional render target into which the scene will be rendered.
-    RenderTarget* target = nullptr;
-  };
+  // Performs necessary preparations in order to render the given requests.
+  // Assumes that the Render() function will be called the same number of times
+  // and in the same order with the given requests.
+  void PrepareToRender(std::span<const mjrRenderRequest*> requests);
 
-  // Renders the scene.
-  void Render(filament::Renderer* renderer, const RenderRequest& request);
+  // Fulfills the given render request using the renderer.
+  void Render(filament::Renderer* renderer, const mjrRenderRequest& request);
 
   // Returns the filament Engine managing the scene.
-  filament::Engine* GetEngine() const { return ctx_->GetEngine(); }
-
-  // Enables/disables shadows for the default render view.
-  void EnableShadows();
-  void DisableShadows();
-
-  // Enables/disables reflections for the default render view.
-  void EnableReflections();
-  void DisableReflections();
-
-  // Enables/disables post processing for the default render view.
-  void EnablePostProcessing();
-  void DisablePostProcessing();
+  filament::Engine* GetEngine() const { return engine_; }
 
   // Returns the underlying filament View that is used for normal rendering.
   // Callers can update rendering settings (e.g. post processing) directly.
@@ -106,16 +85,13 @@ class SceneView : public mjrScene {
   }
 
  private:
-  // Marks a renderable as reflective. Reflective renderables have to be
-  // rendered in their own passes to create the reflective texture.
-  void AddReflectiveRenderable(Renderable* renderable);
-
-  FilamentContext* ctx_ = nullptr;
+  filament::Engine* engine_ = nullptr;
   filament::Scene* scene_ = nullptr;
   filament::Camera* camera_ = nullptr;
   filament::ColorGrading* color_grading_ = nullptr;
   ColorGradingOptions color_grading_options_;
-  std::array<filament::View*, mjNUM_DRAW_MODES> views_;
+  filament::View* main_view_;
+  filament::View* depth_segment_view_;
 
   // Scene objects.
   std::unordered_set<Light*> lights_;
@@ -125,11 +101,7 @@ class SceneView : public mjrScene {
   // Custom view and camera for reflective surfaces.
   filament::View* reflect_view_ = nullptr;
   filament::Camera* reflect_camera_ = nullptr;
-
-  // The list of reflective renderables and their corresponding render targets.
-  bool reflections_enabled_ = true;
-  std::vector<Renderable*> reflectives_;
-  std::vector<std::unique_ptr<RenderTarget>> reflect_targets_;
+  std::unique_ptr<ReflectionManager> reflection_mgr_;
 };
 }  // namespace mujoco
 
