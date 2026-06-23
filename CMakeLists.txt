@@ -47,6 +47,7 @@ if(NOT EMSCRIPTEN)
   option(MUJOCO_TEST_PYTHON_UTIL "Build and test utility libraries for Python bindings" ON)
   option(MUJOCO_WITH_USD "Build with OpenUSD" OFF)
   option(MUJOCO_USE_FILAMENT "Use filament rendering" OFF)
+  option(MUJOCO_USE_DEFAULT_LD "Use ld for linking, seems ld.gold and others don't work well in some systems" ON)
   # Allows filament renderer to be used with mjr API; disables src/render to prevent conflicts.
   option(MUJOCO_USE_FILAMENT_MJR_COMPAT "Use filament mjr compatibility layer" OFF)
 endif()

@@ -288,6 +288,11 @@ class BuildCMakeExtension(build_ext.build_ext):
         ),
         '-DCMAKE_Fortran_COMPILER:STRING=',
         '-DBUILD_TESTING:BOOL=OFF',
+        '-DMUJOCO_BUILD_SIMULATE:BOOL=OFF',
+        '-DMUJOCO_USE_FILAMENT:BOOL=ON',
+        '-DMUJOCO_USE_FILAMENT_MJR_COMPAT:BOOL=ON',
+        '-DMUJOCO_BUILD_STUDIO:BOOL=ON',
+        # '-DMUJOCO_USE_DEFAULT_LD=ON'
     ]
 
     if self._mujoco_framework_path is not None:
@@ -349,7 +354,8 @@ class BuildCMakeExtension(build_ext.build_ext):
     if os.path.exists(build_path):
       shutil.copyfile(build_path, dest_path)
     else:
-      print(f"Warning: Extension {ext.name} was not built by CMake. Skipping.")
+      print(f"Warning: Extension {ext.name} was not built by CMake @ {build_path}. Skipping.")
+      exit(1)
 
 
 class InstallScripts(install_scripts.install_scripts):
@@ -383,7 +389,6 @@ class InstallScripts(install_scripts.install_scripts):
         files.add(newfile)
       else:
         self.outfiles.append(oldfile)
-
 
 setuptools.setup(
     long_description=get_long_description(),

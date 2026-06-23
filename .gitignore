@@ -42,3 +42,5 @@ MUJOCO_LOG.TXT
 wasm/**/dist/
 **/node_modules/
 
+/install
+compile_commands.json

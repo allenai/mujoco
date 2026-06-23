@@ -96,6 +96,8 @@ PYBIND11_MODULE(_constants, pymodule) {
   pymodule.attr("mjVISSTRING") = MakeTuple(mjVISSTRING);
   pymodule.attr("mjRNDSTRING") = MakeTuple(mjRNDSTRING);
   pymodule.attr("MJTNUM_BYTES") = sizeof(mjtNum);
+
+  pymodule.attr("mjRENDERER") = py::cast("filament");
 }
 }  // namespace
 }  // namespace mujoco::python

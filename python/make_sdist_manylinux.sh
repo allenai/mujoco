@@ -13,10 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if [[ -z ${VIRTUAL_ENV} ]] && [[ -z ${CONDA_DEFAULT_ENV} ]]; then
-  echo "This script must be run from within a Python virtual environment"
-  exit 1
-fi
+py_version="py310"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --py-version) py_version="$2"; shift 2 ;;
+        *) echo "Uknown option: $1"; exit 1 ;;
+    esac
+done
+
+py_bin="/opt/python/cp310-cp310/bin/python"
+case $py_version in
+    py310) py_bin="/opt/python/cp310-cp310/bin/python" ;;
+    py311) py_bin="/opt/python/cp311-cp311/bin/python" ;;
+    py312) py_bin="/opt/python/cp312-cp312/bin/python" ;;
+    py313) py_bin="/opt/python/cp313-cp313/bin/python" ;;
+    py314) py_bin="/opt/python/cp314-cp314/bin/python" ;;
+esac
 
 # Figure out the path to this script (https://stackoverflow.com/a/246128).
 package_dir="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
@@ -28,7 +41,7 @@ else
   readonly tmp_dir="$(mktemp -d)"
 fi
 
-uv pip install --upgrade --require-hashes \
+${py_bin} -m pip install --upgrade --require-hashes \
     -r ${package_dir}/make_sdist_requirements.txt
 pushd ${tmp_dir}
 cp -r "${package_dir}"/* .
@@ -40,11 +53,11 @@ if [[ "$(uname)" == CYGWIN* || "$(uname)" == MINGW* ]]; then
 else
   export PYTHONPATH="${old_pythonpath}:${package_dir}/mujoco/python/.."
 fi
-python "${package_dir}"/mujoco/codegen/generate_enum_traits.py > \
+${py_bin} "${package_dir}"/mujoco/codegen/generate_enum_traits.py > \
     mujoco/enum_traits.h
-python "${package_dir}"/mujoco/codegen/generate_function_traits.py > \
+${py_bin} "${package_dir}"/mujoco/codegen/generate_function_traits.py > \
     mujoco/function_traits.h
-python "${package_dir}"/mujoco/codegen/generate_spec_bindings.py > \
+${py_bin} "${package_dir}"/mujoco/codegen/generate_spec_bindings.py > \
     mujoco/specs.cc.inc
 export PYTHONPATH="${old_pythonpath}"
 
@@ -58,7 +71,7 @@ cp "${package_dir}"/../cmake/*.cmake mujoco/cmake
 # Copy over Simulate source code.
 cp -r "${package_dir}"/../simulate mujoco
 
-python -m build . --sdist
+${py_bin} -m build . --sdist
 tar -tf dist/mujoco-*.tar.gz
 popd
 
