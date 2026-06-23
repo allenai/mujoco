@@ -41,10 +41,10 @@ EXT_PREFIX = 'mujoco.'
 def get_long_description():
   """Creates a long description for the package from bundled markdown files."""
   current_dir = os.path.dirname('__file__')
-  with open(os.path.join(current_dir, 'README.md')) as f:
+  with open(os.path.join(current_dir, 'README.md'), encoding='utf-8') as f:
     description = f.read()
   try:
-    with open(os.path.join(current_dir, 'LICENSES_THIRD_PARTY.md')) as f:
+    with open(os.path.join(current_dir, 'LICENSES_THIRD_PARTY.md'), encoding='utf-8') as f:
       description = f'{description}\n{f.read()}'
   except FileNotFoundError:
     pass
@@ -218,10 +218,34 @@ class BuildCMakeExtension(build_ext.build_ext):
     )
     os.makedirs(dst)
     for directory, _, filenames in os.walk(self._mujoco_include_path):
+      rel_dir = os.path.relpath(directory, self._mujoco_include_path)
+
+      # Skip third-party directories
+      if rel_dir.startswith(('SDL2', 'math', 'misc')):
+        continue
+
       for filename in fnmatch.filter(filenames, '*.h'):
-        shutil.copyfile(
-            os.path.join(directory, filename), os.path.join(dst, filename)
+        rel_file_path = os.path.relpath(
+            os.path.join(directory, filename), self._mujoco_include_path
         )
+
+        # Skip third-party files in the root include path (for framework case)
+        if rel_dir == '.' and not (
+            filename == 'mujoco.h' or filename.startswith('mj')
+        ):
+          continue
+
+        # Reconstruct destination path preserving structure
+        # Strip leading 'mujoco/' if present to avoid duplicate 'mujoco/mujoco/'
+        if rel_file_path.startswith('mujoco/'):
+          target_rel_path = rel_file_path[len('mujoco/') :]
+        else:
+          target_rel_path = rel_file_path
+
+        target_dst = os.path.join(dst, target_rel_path)
+        os.makedirs(os.path.dirname(target_dst), exist_ok=True)
+        shutil.copyfile(os.path.join(directory, filename), target_dst)
+
 
   def _copy_studio_assets(self):
     assets_src = None

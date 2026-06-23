@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "render/filament/mjrfilament.h"
+#include <mujoco/mjrfilament.h>
 
 #include <array>
 #include <cstdint>
@@ -39,8 +39,8 @@ static void setf(float (&arr)[N], const std::array<float, N>& values) {
 
 extern "C" {
 
-void mjrf_defaultFilamentConfig(mjrFilamentConfig* config) {
-  memset(config, 0, sizeof(mjrFilamentConfig));
+void mjrf_defaultContextConfig(mjrfContextConfig* config) {
+  memset(config, 0, sizeof(mjrfContextConfig));
 }
 
 void mjrf_defaultTextureData(mjrfTextureData* data) {
@@ -116,7 +116,7 @@ void mjrf_defaultFrameStats(mjrfFrameStats* stats) {
   memset(stats, 0, sizeof(mjrfFrameStats));
 }
 
-mjrfContext* mjrf_createContext(const mjrFilamentConfig* config) {
+mjrfContext* mjrf_createContext(const mjrfContextConfig* config) {
   return new mujoco::FilamentContext(config);
 }
 
@@ -230,10 +230,10 @@ void mjrf_setRenderableMesh(mjrfRenderable* renderable, const mjrfMesh* mesh,
       ->SetMesh(mujoco::Mesh::downcast(mesh), elem_offset, elem_count);
 }
 
-void mjrf_setRenderableGeomMesh(mjrfRenderable* renderable, mjtGeom type,
+void mjrf_setRenderableGeomMesh(mjrfRenderable* renderable, int type,
                                 int nstack, int nslice, int nquad) {
   mujoco::Renderable::downcast(renderable)
-      ->SetGeomMesh(type, nstack, nslice, nquad);
+      ->SetGeomMesh(static_cast<mjtGeom>(type), nstack, nslice, nquad);
 }
 
 void mjrf_setRenderableMaterial(mjrfRenderable* renderable,

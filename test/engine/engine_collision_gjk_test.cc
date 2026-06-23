@@ -42,9 +42,6 @@ using ::testing::ElementsAre;
 using ::testing::Pointwise;
 using ::testing::DoubleNear;
 
-using TestModel = std::unique_ptr<mjModel, void (*)(mjModel*)>;
-using TestData = std::unique_ptr<mjData, void (*)(mjData*)>;
-
 constexpr mjtNum kTolerance = 1e-6;
 constexpr int kMaxIterations = 1000;
 constexpr char kEllipsoidXml[] = R"(
@@ -66,18 +63,7 @@ constexpr char kEllipsoidXml[] = R"(
   </keyframe>
 </mujoco>)";
 
-TestModel LoadModel(std::string_view xml) {
-  char error[1024];
-  mjModel* model = LoadModelFromString(xml, error, sizeof(error));
-  EXPECT_NE(model, nullptr) << "Failed to load model: " << error;
-  return TestModel(model, mj_deleteModel);
-}
-
-TestData MakeData(const mjModel* model) {
-  return TestData(mj_makeData(model), mj_deleteData);
-}
-
-mjtNum GeomDist(const TestModel& m, const TestData& d, int g1, int g2,
+mjtNum GeomDist(const MjModelPtr& m, const MjDataPtr& d, int g1, int g2,
                 mjtNum x1[3], mjtNum x2[3], mjtNum cutoff = mjMAX_LIMIT) {
   mjCCDConfig config;
   mjCCDStatus status;
@@ -102,8 +88,8 @@ mjtNum GeomDist(const TestModel& m, const TestData& d, int g1, int g2,
 }
 
 int Penetration(mjCCDStatus& status, mjtNum& depth, std::vector<mjtNum>& dir,
-                std::vector<mjtNum>& pos, const TestModel& model,
-                const TestData& data, int g1, int g2, mjtNum margin = 0,
+                std::vector<mjtNum>& pos, const MjModelPtr& model,
+                const MjDataPtr& data, int g1, int g2, mjtNum margin = 0,
                 int max_contacts = 1) {
   mjCCDObj obj1, obj2;
   mjc_initCCDObj(&obj1, model.get(), data.get(), g1, margin);
@@ -180,8 +166,8 @@ TEST_F(MjGjkTest, SphereSphereDist) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -203,8 +189,8 @@ TEST_F(MjGjkTest, SphereSphereDistCutoff) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -223,8 +209,8 @@ TEST_F(MjGjkTest, SphereSphereNoDist) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -247,8 +233,8 @@ TEST_F(MjGjkTest, SphereSphereIntersect) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -284,8 +270,8 @@ TEST_F(MjGjkTest, BoxBoxDepth) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -313,8 +299,8 @@ TEST_F(MjGjkTest, BoxBoxDepth2) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat + 9;
@@ -358,8 +344,8 @@ TEST_F(MjGjkTest, BoxBoxDepth3) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -421,8 +407,8 @@ TEST_F(MjGjkTest, BoxBoxSize05) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -479,8 +465,8 @@ TEST_F(MjGjkTest, BoxBoxSize05b) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -540,8 +526,8 @@ TEST_F(MjGjkTest, BoxBoxSize05c) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -601,8 +587,8 @@ TEST_F(MjGjkTest, BoxBoxTouching) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -627,8 +613,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -661,8 +647,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD2) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -695,8 +681,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD3) {
     </worldbody>
 </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat + 9;
@@ -737,8 +723,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD4) {
     </worldbody>
 </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -800,8 +786,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD5) {
     </worldbody>
 </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -864,8 +850,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD6) {
     </worldbody>
 </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat + 9;
@@ -910,8 +896,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD7) {
     </worldbody>
 </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -969,8 +955,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD8) {
     </worldbody>
 </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -1027,8 +1013,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD9) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -1086,8 +1072,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD10) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xpos = data->geom_xpos;
@@ -1123,8 +1109,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD11) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xpos = data->geom_xpos;
@@ -1184,8 +1170,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD12) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xpos = data->geom_xpos;
@@ -1243,8 +1229,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD13) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xpos = data->geom_xpos;
@@ -1305,8 +1291,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD14) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xpos = data->geom_xpos;
@@ -1362,8 +1348,8 @@ TEST_F(MjGjkTest, BoxBoxMultiCCD15) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -1441,8 +1427,8 @@ TEST_F(MjGjkTest, SmallBoxMesh) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1485,8 +1471,8 @@ TEST_F(MjGjkTest, BoxMesh) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1515,8 +1501,8 @@ TEST_F(MjGjkTest, BoxMesh2) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1545,8 +1531,8 @@ TEST_F(MjGjkTest, BoxMeshPrune) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1577,8 +1563,8 @@ TEST_F(MjGjkTest, MeshMesh) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1609,8 +1595,8 @@ TEST_F(MjGjkTest, MeshMeshPrune) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1633,8 +1619,8 @@ TEST_F(MjGjkTest, BoxEdge) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "box1");
@@ -1657,8 +1643,8 @@ TEST_F(MjGjkTest, BoxEdge2) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -1715,8 +1701,8 @@ TEST_F(MjGjkTest, BoxEdgeEdge) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -1779,8 +1765,8 @@ TEST_F(MjGjkTest, MeshEdge) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "box1");
@@ -1819,8 +1805,8 @@ TEST_F(MjGjkTest, MeshEdge2) {
   </mujoco>
   )";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "floor");
@@ -1835,8 +1821,8 @@ TEST_F(MjGjkTest, MeshEdge2) {
 }
 
 TEST_F(MjGjkTest, EllipsoidEllipsoidPenetrating) {
-  TestModel model = LoadModel(kEllipsoidXml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(kEllipsoidXml);
+  MjDataPtr data = MakeData(model);
   mj_resetDataKeyframe(model.get(), data.get(), 0);
   mj_forward(model.get(), data.get());
 
@@ -1861,8 +1847,8 @@ TEST_F(MjGjkTest, EllipsoidEllipsoid) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1884,8 +1870,8 @@ TEST_F(MjGjkTest, EllipsoidEllipsoidSlowConvergence) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   mjtNum* xmat = data->geom_xmat;
@@ -1943,8 +1929,8 @@ TEST_F(MjGjkTest, BoxBox) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -1952,6 +1938,51 @@ TEST_F(MjGjkTest, BoxBox) {
   mjtNum dist = GeomDist(model, data, geom1, geom2, nullptr, nullptr);
 
   EXPECT_EQ(dist, 1);
+}
+
+TEST_F(MjGjkTest, BoxBoxLarge) {
+  static constexpr char xml[] = R"(
+  <mujoco>
+    <worldbody>
+      <geom name="geom1" type="box" pos="0 0 0.25" size="50 50 0.25"/>
+      <geom name="geom2" type="box" pos="0 0 0.60" size="0.1 0.1 0.1"/>
+    </worldbody>
+  </mujoco>)";
+
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
+  mj_forward(model.get(), data.get());
+
+  int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
+  int g2 = mj_name2id(model.get(), mjOBJ_GEOM, "geom2");
+
+  mjtNum* xmat = data->geom_xmat;
+  mjtNum* xpos = data->geom_xpos;
+
+  xpos = data->geom_xpos + 3;
+  xmat = data->geom_xmat + 9;
+
+  xpos[0] = -0.000000000043537;
+  xpos[1] = -0.000000000012973;
+  xpos[2] = 0.599245786666870;
+
+  xmat[0] = 1.000000000000000;
+  xmat[1] = -0.000000000004566;
+  xmat[2] = -0.000000000167641;
+  xmat[3] = 0.000000000004566;
+  xmat[4] = 1.000000000000000;
+  xmat[5] = -0.000000000017877;
+  xmat[6] = 0.000000000167641;
+  xmat[7] = 0.000000000017877;
+  xmat[8] = 1.000000000000000;
+
+  mjCCDStatus status;
+  std::vector<mjtNum> dir, pos;
+  mjtNum dist;
+  int ncon = Penetration(status, dist, dir, pos, model, data, g1, g2, 0, 1000);
+
+  EXPECT_NEAR(dist, -0.000754, kTolerance);
+  EXPECT_EQ(ncon, 4);
 }
 
 TEST_F(MjGjkTest, LongBox) {
@@ -1968,8 +1999,8 @@ static constexpr char xml[] = R"(
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -2001,8 +2032,8 @@ TEST_F(MjGjkTest, EllipsoidEllipsoidIntersect) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -2026,8 +2057,8 @@ TEST_F(MjGjkTest, CapsuleCapsule) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int geom1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");
@@ -2056,8 +2087,8 @@ TEST_F(MjGjkTest, CylinderBoxMargin) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   // margin=0.1 means forces generated when dist<0.1
@@ -2076,8 +2107,8 @@ TEST_F(MjGjkTest, BoxEdgeFlipped) {
     </worldbody>
   </mujoco>)";
 
-  TestModel model = LoadModel(xml);
-  TestData data = MakeData(model.get());
+  MjModelPtr model = LoadModelFromString(xml);
+  MjDataPtr data = MakeData(model);
   mj_forward(model.get(), data.get());
 
   int g1 = mj_name2id(model.get(), mjOBJ_GEOM, "geom1");

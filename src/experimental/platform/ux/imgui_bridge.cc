@@ -24,8 +24,8 @@
 #include <imgui.h>
 #include <math/mat3.h>
 #include <math/vec3.h>
+#include <mujoco/mjrfilament.h>
 #include <mujoco/mujoco.h>
-#include "render/filament/mjrfilament.h"
 #include "render/filament/mjrfilament_cpp.h"
 
 namespace mujoco {
@@ -203,7 +203,7 @@ void ImguiBridge::Update() {
       } else if (tex->Status == ImTextureStatus_WantUpdates) {
         UpdateTexture(tex);
       } else if (tex->Status == ImTextureStatus_WantDestroy &&
-                 tex->UnusedFrames > 0) {
+                 tex->UnusedFrames >= 3) {
         DestroyTexture(tex);
       }
     }
@@ -221,7 +221,7 @@ void ImguiBridge::Update() {
 
     mjrfMeshData data;
     mjrf_defaultMeshData(&data);
-    data.nattributes = 3;
+    data.num_attributes = 3;
     data.attributes[0].usage = mjVERTEX_ATTRIBUTE_USAGE_POSITION;
     data.attributes[0].type = mjVERTEX_ATTRIBUTE_TYPE_FLOAT2;
     data.attributes[0].bytes = cmds->VtxBuffer.Data;

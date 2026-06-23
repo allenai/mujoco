@@ -27,12 +27,12 @@
 #if !defined(__EMSCRIPTEN__) && !defined(__APPLE__)
 #include "experimental/platform/hal/egl_utils.h"
 #endif
+#include <mujoco/mjrfilament.h>
 #include "experimental/filament/compat/scene_bridge.h"
 #include "experimental/platform/hal/graphics_mode.h"
 #include "experimental/platform/ux/imgui_bridge.h"
 #include "experimental/platform/ux/imgui_widgets.h"
 #include "experimental/platform/ux/plugin.h"
-#include "render/filament/mjrfilament.h"
 #include "render/filament/mjrfilament_cpp.h"
 
 namespace mujoco::platform {
@@ -94,8 +94,8 @@ void Renderer::Init(const mjModel* model) {
       mjr_makeContext(model, &render_context_, mjFONTSCALE_150);
 
     } else {
-      mjrFilamentConfig cfg;
-      mjrf_defaultFilamentConfig(&cfg);
+      mjrfContextConfig cfg;
+      mjrf_defaultContextConfig(&cfg);
       cfg.native_window = native_window_;
       cfg.force_software_rendering = IsSoftware(gfx_);
       cfg.graphics_api = IsOpenGl(gfx_) || IsWebGl(gfx_)

@@ -62,6 +62,7 @@ public const bool THIRD_PARTY_MUJOCO_MJRENDER_H_ = true;
 public const int mjNAUX = 10;
 public const int mjMAXTEXTURE = 1000;
 public const int mjMAXMATERIAL = 1000;
+public const bool THIRD_PARTY_MUJOCO_MJRFILAMENT_H_ = true;
 public const bool THIRD_PARTY_MUJOCO_INCLUDE_MJSAN_H_ = true;
 public const bool ADDRESS_SANITIZER = true;
 public const bool THIRD_PARTY_MUJOCO_INCLUDE_MJSPEC_H_ = true;
@@ -115,7 +116,7 @@ public const int mjMAXLINEPNT = 1001;
 public const int mjMAXPLANEGRID = 200;
 public const bool THIRD_PARTY_MUJOCO_MJXMACRO_H_ = true;
 public const bool THIRD_PARTY_MUJOCO_MUJOCO_H_ = true;
-public const int mjVERSION_HEADER = 3010000;
+public const int mjVERSION_HEADER = 3010001;
 
 
 // ------------------------------------Enums------------------------------------
@@ -582,6 +583,11 @@ public enum mjtOrientation : int{
   mjORIENTATION_XYAXES = 2,
   mjORIENTATION_ZAXIS = 3,
   mjORIENTATION_EULER = 4,
+}
+public enum mjtConflict : int{
+  mjCONFLICT_WARNING = 0,
+  mjCONFLICT_MERGE = 1,
+  mjCONFLICT_ERROR = 2,
 }
 public enum mjtCTimer : int{
   mjCTIMER_TOTAL = 0,
@@ -5865,6 +5871,7 @@ public unsafe struct mjsCompiler_ {
   public fixed int inertiagrouprange[2];
   public byte saveinertial;
   public int alignfree;
+  public int conflict;
   public mjLROpt_ LRopt;
   public void* meshdir;
   public void* texturedir;

@@ -22,8 +22,8 @@
 #include <math/vec2.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
+#include <mujoco/mjrfilament.h>
 #include <mujoco/mujoco.h>
-#include "render/filament/mjrfilament.h"
 #include "render/filament/mjrfilament_cpp.h"
 
 namespace mujoco {
@@ -103,9 +103,13 @@ static std::span<const int> GetIndices(const mjModel* model,
   }
 }
 
-static void UpdateSkinFlexMeshData(mjrfMeshData* data, const mjModel* model,
+static bool UpdateSkinFlexMeshData(mjrfMeshData* data, const mjModel* model,
                                    const mjvScene* scene, const mjvGeom& geom) {
   auto positions = GetPositions(model, scene, geom);
+  if (positions.empty()) {
+    return false;
+  }
+
   auto normals = GetNormals(model, scene, geom);
   auto uvs = GetUvs(model, scene, geom);
   auto indices = GetIndices(model, scene, geom);
@@ -115,7 +119,7 @@ static void UpdateSkinFlexMeshData(mjrfMeshData* data, const mjModel* model,
     num_indices = 3 * scene->flexfaceused[geom.objid];
   }
 
-  data->nattributes = uvs.data() ? 3 : 2;
+  data->num_attributes = uvs.data() ? 3 : 2;
   data->attributes[0].usage = mjVERTEX_ATTRIBUTE_USAGE_POSITION;
   data->attributes[0].type = mjVERTEX_ATTRIBUTE_TYPE_FLOAT3;
   data->attributes[0].bytes = positions.data();
@@ -133,16 +137,19 @@ static void UpdateSkinFlexMeshData(mjrfMeshData* data, const mjModel* model,
   data->compute_bounds = true;
   data->release = nullptr;
   data->user_data = nullptr;
+  return true;
 }
 
 SceneObjects::SceneObjects(mjrfContext* ctx) : ctx_(ctx) {}
 
-void SceneObjects::CreateSkinFlexMesh(const mjvScene* scene,
+bool SceneObjects::CreateSkinFlexMesh(const mjvScene* scene,
                                       const mjModel* model,
                                       const mjvGeom& geom) {
   mjrfMeshData data;
   mjrf_defaultMeshData(&data);
-  UpdateSkinFlexMeshData(&data, model, scene, geom);
+  if (!UpdateSkinFlexMeshData(&data, model, scene, geom)) {
+    return false;
+  }
   if (geom.type == mjGEOM_FLEX) {
     flexes_.insert_or_assign(geom.objid, CreateMesh(ctx_, data));
   } else if (geom.type == mjGEOM_SKIN) {
@@ -150,6 +157,7 @@ void SceneObjects::CreateSkinFlexMesh(const mjvScene* scene,
   } else {
     mju_error("Unsupported dynamic mesh type: %d", geom.type);
   }
+  return true;
 }
 
 const mjrfMesh* SceneObjects::GetFlexMesh(int geom_id) const {

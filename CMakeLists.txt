@@ -29,7 +29,7 @@ set(MSVC_INCREMENTAL_DEFAULT ON)
 
 project(
   mujoco
-  VERSION 3.10.0
+  VERSION 3.10.1
   DESCRIPTION "MuJoCo Physics Simulator"
   HOMEPAGE_URL "https://mujoco.org"
 )
@@ -63,15 +63,15 @@ if(EMSCRIPTEN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
   endif()
 
-  # Filament uses the WEBGL variable (not EMSCRIPTEN) to identify web builds.
+  # Filament uses the WASM variable (not EMSCRIPTEN) to identify web builds.
   # Without this, it falls into the LINUX path and tries to compile with
   # futex, X11, Vulkan, etc.
   if(MUJOCO_USE_FILAMENT)
-    set(WEBGL ON CACHE BOOL "Filament WebGL mode" FORCE)
+    set(WASM ON CACHE BOOL "Filament WASM mode" FORCE)
   endif()
 
   # Automatically generate host tool imports for Filament cross-compilation.
-  # When WEBGL is true, Filament hardcodes the path to:
+  # When WASM is true, Filament hardcodes the path to:
   #   ${FILAMENT}/${IMPORT_EXECUTABLES_DIR}/ImportExecutables-Release.cmake
   # So we write our file with that exact name and set IMPORT_EXECUTABLES_DIR
   # to point at CMAKE_BINARY_DIR (which is ../../ relative to filament-src).
@@ -91,7 +91,7 @@ if(EMSCRIPTEN)
       "add_executable(cmgen IMPORTED)\n"
       "set_property(TARGET cmgen PROPERTY IMPORTED_LOCATION \"${CMGEN_EXE}\")\n"
     )
-    # Filament's WEBGL path resolves: ${FILAMENT}/${IMPORT_EXECUTABLES_DIR}/ImportExecutables-Release.cmake
+    # Filament's WASM path resolves: ${FILAMENT}/${IMPORT_EXECUTABLES_DIR}/ImportExecutables-Release.cmake
     # FILAMENT = _deps/filament-src, so ../../ resolves to CMAKE_BINARY_DIR.
     set(IMPORT_EXECUTABLES_DIR "../../" CACHE PATH "" FORCE)
   else()
@@ -120,6 +120,7 @@ set(MUJOCO_HEADERS
     include/mujoco/mjmodel.h
     include/mujoco/mjplugin.h
     include/mujoco/mjrender.h
+    include/mujoco/mjrfilament.h
     include/mujoco/mjsan.h
     include/mujoco/mjspec.h
     include/mujoco/mjspecmacro.h

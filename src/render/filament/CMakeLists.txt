@@ -21,7 +21,6 @@ target_compile_definitions(${MUJOCO_FILAMENT_TARGET_NAME} PRIVATE MJ_STATIC)
 
 target_sources(${MUJOCO_FILAMENT_TARGET_NAME}
     PUBLIC
-        mjrfilament.h
         mjrfilament.cc
         mjrfilament_cpp.h
         core/builtins.cc
@@ -112,7 +111,7 @@ set(MATERIAL_FILES
     outline_composite.mat
     outline_flatten.mat
     outline_jumpflood.mat
-    unlit_decor.mat
+    decor.mat
     unlit_depth.mat
     unlit_segmentation.mat
     unlit_ui.mat

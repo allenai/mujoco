@@ -24,10 +24,10 @@
 #include <math/mathfwd.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
+#include <mujoco/mjrfilament.h>
 #include <mujoco/mujoco.h>
 #include "experimental/filament/compat/scene_geom_util.h"
 #include "experimental/filament/compat/scene_objects.h"
-#include "render/filament/mjrfilament.h"
 #include "render/filament/mjrfilament_cpp.h"
 #include "render/filament/support/filament_util.h"
 #include "render/filament/support/light_manager.h"
@@ -102,6 +102,8 @@ mat4 CalculateClipFromWorld(const mjrRect& viewport, const mjrCamera& cam) {
 }
 
 void SceneBridge::Update(const mjrRect& viewport, const mjvScene* scene) {
+  const mjModel* model = model_objects_->GetModel();
+
   mjtNum hpos[3], hfwd[3];
   float headpos[3], gazedir[3];
   mjv_cameraInModel(hpos, hfwd, nullptr, scene);
@@ -125,9 +127,89 @@ void SceneBridge::Update(const mjrRect& viewport, const mjvScene* scene) {
       }
     }
 
+    // Draw flex edges and vertices as separate renderables.
+    if (geom->type == mjGEOM_FLEX &&
+        (!scene->flexskinopt || model->flex_dim[geom->objid] == 1)) {
+      mjrfMaterial material;
+      mjrf_defaultMaterial(&material);
+      material.color[0] = model->flex_rgba[4 * geom->objid + 0];
+      material.color[1] = model->flex_rgba[4 * geom->objid + 1];
+      material.color[2] = model->flex_rgba[4 * geom->objid + 2];
+      material.color[3] = model->flex_rgba[4 * geom->objid + 3];
+
+      mjrfRenderableParams params;
+      mjrf_defaultRenderableParams(&params);
+
+      const int vertadr = scene->flexvertadr[geom->objid];
+      const int vertnum = scene->flexvertnum[geom->objid];
+      const float radius = model->flex_radius[geom->objid];
+
+      if (scene->flexvertopt) {
+        // Use small spheres to represent vertices.
+        const float rot[] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+        const float size[] = {radius, radius, radius};
+        for (int v = vertadr; v < vertadr + vertnum; ++v) {
+          auto vertex = CreateRenderable(ctx_, params);
+          mjrf_setRenderableGeomMesh(vertex.get(), mjGEOM_SPHERE, 3, 3, 3);
+          mjrf_setRenderableMaterial(vertex.get(), &material);
+          mjrf_setRenderableSize(vertex.get(), size);
+          mjrf_setRenderableTransform(vertex.get(), scene->flexvert + 3*v, rot);
+          mjrf_addRenderableToScene(scene_.get(), vertex.get());
+          renderables_.push_back(std::move(vertex));
+        }
+      }
+
+      if (scene->flexedgeopt) {
+        const int edgeadr = scene->flexedgeadr[geom->objid];
+        const int edgenum = scene->flexedgenum[geom->objid];
+
+        // Use small thin cylinders to represent the edges.
+        for (int e = edgeadr; e < edgeadr + edgenum; ++e) {
+          const float* v1 = scene->flexvert + 3 * (vertadr + scene->flexedge[2*e]);
+          const float* v2 = scene->flexvert + 3 * (vertadr + scene->flexedge[2*e+1]);
+          const mjtNum vec[3] = {v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]};
+
+          const float pos[3]{
+              (v1[0] + v2[0]) * 0.5f,
+              (v1[1] + v2[1]) * 0.5f,
+              (v1[2] + v2[2]) * 0.5f,
+          };
+
+          mjtNum quat[4];
+          mju_quatZ2Vec(quat, vec);
+          mjtNum edgemat[9];
+          mju_quat2Mat(edgemat, quat);
+          const float rot[9] = {
+            static_cast<float>(edgemat[0]),
+            static_cast<float>(edgemat[1]),
+            static_cast<float>(edgemat[2]),
+            static_cast<float>(edgemat[3]),
+            static_cast<float>(edgemat[4]),
+            static_cast<float>(edgemat[5]),
+            static_cast<float>(edgemat[6]),
+            static_cast<float>(edgemat[7]),
+            static_cast<float>(edgemat[8]),
+          };
+
+          const float len = static_cast<float>(mju_norm3(vec));
+          const float size[3] = {radius, radius, len * 0.5f};
+
+          auto vertex = CreateRenderable(ctx_, params);
+          mjrf_setRenderableGeomMesh(vertex.get(), mjGEOM_CYLINDER, 3, 3, 3);
+          mjrf_setRenderableMaterial(vertex.get(), &material);
+          mjrf_setRenderableSize(vertex.get(), size);
+          mjrf_setRenderableTransform(vertex.get(), pos, rot);
+          mjrf_addRenderableToScene(scene_.get(), vertex.get());
+          renderables_.push_back(std::move(vertex));
+        }
+      }
+    }
+
     if (geom->type == mjGEOM_FLEX || geom->type == mjGEOM_SKIN) {
-      scene_objects_->CreateSkinFlexMesh(scene, model_objects_->GetModel(),
-                                         *geom);
+      if (!scene_objects_->CreateSkinFlexMesh(scene, model_objects_->GetModel(),
+                                              *geom)) {
+        continue;
+      }
     }
 
     UniquePtr<mjrfRenderable> renderable = CreateGeomRenderable(

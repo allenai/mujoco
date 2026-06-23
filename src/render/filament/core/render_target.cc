@@ -25,9 +25,9 @@
 #include <filament/RenderTarget.h>
 #include <filament/Renderer.h>
 #include <filament/Texture.h>
+#include <mujoco/mjrfilament.h>
 #include <mujoco/mujoco.h>
 #include "render/filament/core/texture.h"
-#include "render/filament/mjrfilament.h"
 
 namespace mujoco {
 
@@ -96,6 +96,11 @@ void RenderTarget::ReadColorPixels(filament::Renderer* renderer, uint8_t* bytes,
       format = filament::backend::PixelDataFormat::RGB;
       type = filament::backend::PixelDataType::UBYTE;
       expected_num_bytes = width_ * height_ * 3;
+      break;
+    case mjPIXEL_FORMAT_RGBA8:
+      format = filament::backend::PixelDataFormat::RGBA;
+      type = filament::backend::PixelDataType::UBYTE;
+      expected_num_bytes = width_ * height_ * 4;
       break;
     case mjPIXEL_FORMAT_R32F:
       format = filament::backend::PixelDataFormat::R;

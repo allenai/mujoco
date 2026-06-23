@@ -86,15 +86,16 @@ if(NOT TARGET mujoco)
     if(MUJOCO_FRAMEWORK)
       message("MuJoCo framework is at ${MUJOCO_FRAMEWORK}/mujoco.framework")
       set(MUJOCO_LIBRARY
-          ${MUJOCO_FRAMEWORK}/mujoco.framework/Versions/A/libmujoco.3.10.0.dylib
+          ${MUJOCO_FRAMEWORK}/mujoco.framework/Versions/A/libmujoco.3.10.1.dylib
       )
       target_compile_options(mujoco INTERFACE -F${MUJOCO_FRAMEWORK})
+      set(MUJOCO_INCLUDE "${MUJOCO_FRAMEWORK}/mujoco.framework/Versions/A/Headers")
     endif()
   endif()
 
   if(NOT MUJOCO_FRAMEWORK)
     find_library(
-      MUJOCO_LIBRARY mujoco mujoco.3.10.0 HINTS ${MUJOCO_LIBRARY_DIR} REQUIRED
+      MUJOCO_LIBRARY mujoco mujoco.3.10.1 HINTS ${MUJOCO_LIBRARY_DIR} REQUIRED
     )
     find_path(MUJOCO_INCLUDE mujoco/mujoco.h HINTS ${MUJOCO_INCLUDE_DIR} REQUIRED)
     message("MuJoCo is at ${MUJOCO_LIBRARY}")
@@ -132,8 +133,12 @@ endif()
 
 # =================== MUJOCO PLATFORM STATIC LIBRARY ==========================
 if(NOT TARGET mujoco::platform)
+  set(MUJOCO_PLATFORM_HINTS ${MUJOCO_LIBRARY_DIR})
+  if(MUJOCO_FRAMEWORK)
+    list(APPEND MUJOCO_PLATFORM_HINTS "${MUJOCO_FRAMEWORK}/mujoco.framework/Versions/A")
+  endif()
   find_library(
-    MUJOCO_PLATFORM_LIBRARY mujoco_platform HINTS ${MUJOCO_LIBRARY_DIR}
+    MUJOCO_PLATFORM_LIBRARY mujoco_platform HINTS ${MUJOCO_PLATFORM_HINTS}
   )
   if(MUJOCO_PLATFORM_LIBRARY)
     message(STATUS "Found mujoco_platform library at ${MUJOCO_PLATFORM_LIBRARY}")
@@ -141,20 +146,20 @@ if(NOT TARGET mujoco::platform)
     set_target_properties(mujoco_platform PROPERTIES IMPORTED_LOCATION "${MUJOCO_PLATFORM_LIBRARY}")
     add_library(mujoco::platform ALIAS mujoco_platform)
 
+    set(PLATFORM_INCLUDES "${MUJOCO_INCLUDE}" "${MUJOCO_INCLUDE}/mujoco" "${MUJOCO_INCLUDE}/SDL2")
     set_target_properties(mujoco_platform PROPERTIES
-      INTERFACE_INCLUDE_DIRECTORIES "${MUJOCO_INCLUDE};${MUJOCO_INCLUDE}/mujoco;${MUJOCO_INCLUDE}/SDL2"
+      INTERFACE_INCLUDE_DIRECTORIES "${PLATFORM_INCLUDES}"
     )
     target_compile_features(mujoco_platform INTERFACE cxx_std_20)
 
     set(PLATFORM_DEPS)
-    foreach(dep_lib IN ITEMS
+    set(dep_libs
       mujoco_filament
       dear_imgui
       dear_imgui_stdlib
       implot
       filament
       backend
-      SDL2
       glfw3
       image
       ktxreader
@@ -175,9 +180,39 @@ if(NOT TARGET mujoco::platform)
       basis_encoder
       basis_transcoder
       zstd
+      webp
+      sharpyuv
       z
     )
-      find_library(DEP_PATH_${dep_lib} ${dep_lib} HINTS ${MUJOCO_LIBRARY_DIR})
+
+   set(platform_system_libs)
+    if(WIN32)
+      list(APPEND dep_libs SDL2-static)
+      set(platform_system_libs winmm setupapi version imm32 opengl32)
+    else()
+      list(APPEND dep_libs SDL2)
+      if(UNIX AND NOT APPLE)
+        set(platform_system_libs pthread dl rt)
+      elseif(APPLE)
+        set(platform_system_libs
+          "-framework Cocoa"
+          "-framework IOKit"
+          "-framework Carbon"
+          "-framework ForceFeedback"
+          "-framework CoreVideo"
+          "-framework CoreAudio"
+          "-framework AudioToolbox"
+          "-framework Metal"
+          "-framework GameController"
+          "-framework CoreHaptics"
+          "-framework AVFoundation"
+          "-framework QuartzCore"
+        )
+      endif()
+    endif()
+
+    foreach(dep_lib IN LISTS dep_libs)
+      find_library(DEP_PATH_${dep_lib} ${dep_lib} HINTS ${MUJOCO_PLATFORM_HINTS})
       if(DEP_PATH_${dep_lib})
         add_library(mujoco::dep::${dep_lib} STATIC IMPORTED GLOBAL)
         set_target_properties(mujoco::dep::${dep_lib} PROPERTIES
@@ -188,9 +223,7 @@ if(NOT TARGET mujoco::platform)
       endif()
     endforeach()
 
-    if(UNIX AND NOT APPLE)
-      list(APPEND PLATFORM_DEPS pthread dl rt)
-    endif()
+    list(APPEND PLATFORM_DEPS ${platform_system_libs})
 
     set_target_properties(mujoco_platform PROPERTIES INTERFACE_LINK_LIBRARIES "${PLATFORM_DEPS}")
   endif()
@@ -208,7 +241,7 @@ findorfetch(
   GIT_REPO
   https://github.com/abseil/abseil-cpp
   GIT_TAG
-  255c84dadd029fd8ad25c5efb5933e47beaa00c7 # LTS 20250814.1
+  5650e9cf76d3be4318d5fa3af38ee483ddfd5e4a # LTS 20260526.0
   TARGETS
   ${MUJOCO_PYTHON_ABSL_TARGETS}
   EXCLUDE_FROM_ALL
@@ -493,6 +526,10 @@ target_link_libraries(
           structs_header
           structs_wrappers
 )
+
+if(APPLE)
+  set_target_properties(_structs PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+endif()
 
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/specs.cc.inc)
   add_custom_command(

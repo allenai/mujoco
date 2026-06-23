@@ -25,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <memory>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -39,12 +40,26 @@ MJAPI mjfLogHandler _mjPRIVATE_setTlsLogHandler(mjfLogHandler handler);
 
 namespace mujoco {
 
+struct MjModelDeleter {
+  void operator()(mjModel* m) const {
+    mj_deleteModel(m);
+  }
+};
+using MjModelPtr = std::unique_ptr<mjModel, MjModelDeleter>;
+
+struct MjDataDeleter {
+  void operator()(mjData* d) const {
+    mj_deleteData(d);
+  }
+};
+using MjDataPtr = std::unique_ptr<mjData, MjDataDeleter>;
+
 // Runtime scale factor for test tolerances, controlled by MJTOL_SCALE env var.
 // Set MJTOL_SCALE=0 to run tests with zero tolerance and see actual residuals.
 inline mjtNum MjTolScale() {
   static const mjtNum scale = []() {
     const char* env = std::getenv("MJTOL_SCALE");
-    return env ? std::atof(env) : 1.0;
+    return env ? std::strtod(env, nullptr) : 1.0;
   }();
   return scale;
 }
@@ -106,6 +121,29 @@ class MujocoErrorTestGuard {
   ~MujocoErrorTestGuard();
 };
 
+// Mock handler for capturing and verifying mju_warning logs.
+class MockWarningHandler {
+ public:
+  // Constructor that registers this handler as the active one.
+  MockWarningHandler();
+  // Destructor that restores the previously active handler.
+  ~MockWarningHandler();
+
+  // Mock method called when a warning is intercepted.
+  MOCK_METHOD(void, Warn, (const std::string& msg));
+
+  // Allow any number of warnings (if empty) or expect at least one warning
+  // containing the specified substring (if non-empty).
+  void ExpectWarnings(std::string_view substring = "");
+
+  // Returns the thread-local active mock warning handler.
+  static MockWarningHandler* GetActive();
+
+ private:
+  static thread_local MockWarningHandler* active_handler;
+  MockWarningHandler* prev_ = nullptr;
+};
+
 // A test fixture which simplifies writing tests for the MuJoCo C API.
 // By default, any MuJoCo operation which triggers a warning or error will
 // trigger a test failure.
@@ -127,6 +165,9 @@ class MujocoTest : public ::testing::Test {
     });
   }
   ~MujocoTest() { mj_freeLastXML(); }
+
+ protected:
+  MockWarningHandler mock_warning_handler;
 
  private:
   MujocoErrorTestGuard error_guard;
@@ -163,8 +204,11 @@ const std::string GetModelPath(std::string_view path);
 
 // Returns a newly-allocated mjModel, loaded from the contents of xml.
 // On failure returns nullptr and populates the error array if present.
-mjModel* LoadModelFromString(std::string_view xml, char* error = nullptr,
+MjModelPtr LoadModelFromString(std::string_view xml, char* error = nullptr,
                              int error_size = 0, mjVFS* vfs = nullptr);
+
+// Returns a newly-allocated mjData, initialized using model.
+MjDataPtr MakeData(const MjModelPtr& model);
 
 // Returns a newly-allocated mjModel, loaded from the contents in model_path.
 // On failure it asserts that model is null.

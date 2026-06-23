@@ -24,16 +24,16 @@
 #include <filament/Renderer.h>
 #include <filament/SwapChain.h>
 #include <math/vec4.h>
+#include <mujoco/mjrfilament.h>
 #include "render/filament/core/material_manager.h"
 #include "render/filament/core/object_manager.h"
-#include "render/filament/mjrfilament.h"
 
 namespace mujoco {
 
 // Manages the filament::Renderer and provides APIs for rendering scenes.
 class FilamentContext : public mjrfContext {
  public:
-  explicit FilamentContext(const mjrFilamentConfig* config);
+  explicit FilamentContext(const mjrfContextConfig* config);
   ~FilamentContext();
 
   FilamentContext(const FilamentContext&) = delete;
@@ -75,7 +75,7 @@ class FilamentContext : public mjrfContext {
  private:
   void ValidateSwapChains(std::span<const mjrfRenderRequest> render_requests);
 
-  mjrFilamentConfig config_;
+  mjrfContextConfig config_;
   filament::Engine* engine_ = nullptr;
   filament::Renderer* renderer_ = nullptr;
   filament::SwapChain* window_swap_chain_ = nullptr;

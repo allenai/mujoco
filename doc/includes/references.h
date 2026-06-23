@@ -1549,6 +1549,11 @@ typedef enum mjtOrientation_ {     // type of orientation specifier
   mjORIENTATION_ZAXIS,             // z axis (minimal rotation)
   mjORIENTATION_EULER,             // Euler angles
 } mjtOrientation;
+typedef enum mjtConflict_ {  // conflict resolution for attach
+  mjCONFLICT_WARNING = 0,    // keep parent, warn on conflict
+  mjCONFLICT_MERGE,          // merge: min/max/error per field
+  mjCONFLICT_ERROR,          // error on any conflict
+} mjtConflict;
 typedef enum mjtCTimer_ {          // compiler timing categories
   // top-level timers (wall-clock)
   mjCTIMER_TOTAL = 0,              // total compile time
@@ -1585,6 +1590,7 @@ typedef struct mjsCompiler_ {      // compiler options
   int inertiagrouprange[2];        // range of geom groups used to compute inertia
   mjtByte saveinertial;            // save explicit inertial clause for all bodies to XML
   int alignfree;                   // align free joints with inertial frame
+  int conflict;  // conflict resolution for attach (mjtConflict)
   mjLROpt LRopt;                   // options for lengthrange computation
   mjString* meshdir;               // mesh and hfield directory
   mjString* texturedir;            // texture directory
@@ -3555,6 +3561,8 @@ void mju_writeLog(const char* type, const char* msg);
 const char* mjs_getError(mjSpec* s);
 const double* mjs_getTimer(mjSpec* s);
 int mjs_isWarning(mjSpec* s);
+int mjs_numWarnings(const mjSpec* spec);
+const char* mjs_getWarning(const mjSpec* spec, int index);
 void mju_zero3(mjtNum res[3]);
 void mju_copy3(mjtNum res[3], const mjtNum data[3]);
 void mju_scl3(mjtNum res[3], const mjtNum vec[3], mjtNum scl);

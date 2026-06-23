@@ -19,7 +19,7 @@
 
 #include <backend/Platform.h>
 #include <filament/Engine.h>
-#include "render/filament/mjrfilament.h"
+#include <mujoco/mjrfilament.h>
 
 namespace mujoco {
 
@@ -38,7 +38,7 @@ struct FilamentPlatformSetup {
 // Creates a filament::Platform based on the given config and defines the
 // filament::Engine::Backend to use. Also returns additional information for
 // setting up the filament::Engine for use with the provided Platform.
-FilamentPlatformSetup CreateFilamentPlatform(const mjrFilamentConfig& config);
+FilamentPlatformSetup CreateFilamentPlatform(const mjrfContextConfig& config);
 
 }  // namespace mujoco
 
