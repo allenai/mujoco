@@ -312,10 +312,10 @@ void SetupTheme(GuiTheme theme) {
 
   int hspacing = 3;
   int vspacing = 2;
-  float rounding = 2.0f;
+  float rounding = 3.0f;
   s.DisplaySafeAreaPadding = ImVec2(0, 0);
   s.WindowPadding = ImTrunc(ImVec2(6.0f * scale, 6.0f * scale));
-  s.FramePadding = ImTrunc(ImVec2(hspacing * scale, 3.0f * scale));
+  s.FramePadding = ImTrunc(ImVec2(hspacing * scale, 4.0f * scale));
   s.ItemSpacing = ImTrunc(ImVec2(hspacing * scale, vspacing * scale));
   s.ItemInnerSpacing = ImTrunc(ImVec2(hspacing * scale, vspacing * scale));
   s.WindowRounding = ImTrunc(rounding * scale);
@@ -326,7 +326,7 @@ void SetupTheme(GuiTheme theme) {
   s.GrabRounding = ImTrunc(rounding * scale);
   s.PopupRounding = ImTrunc(rounding * scale);
   s.WindowBorderSize = 0.0f;
-  s.FrameBorderSize = 0.0f;
+  s.FrameBorderSize = 1.0f;
   s.PopupBorderSize = 1.0f;
   s.IndentSpacing = ImTrunc(10.0f * scale);
   s.ScrollbarSize = ImTrunc(10.0f * scale);
@@ -352,7 +352,7 @@ void RescaleDock(float ratio) {
   }
 }
 
-ImVec4 ConfigureDockingLayout() {
+ImVec4 ConfigureDockingLayout(bool show_toolbar, bool show_status_bar) {
   ImGuiViewport* viewport = ImGui::GetMainViewport();
   const float scale = ImGui::GetWindowDpiScale();
   const float font_scale = ImGui::GetIO().FontGlobalScale;
@@ -360,8 +360,10 @@ ImVec4 ConfigureDockingLayout() {
   const float kOptionsRelWidth = 0.15f;
   const float kInspectorRelWidth = 0.22f;
   const float kPropertiesRelHeight = 0.3f;
-  const float kToolsBarHeight = 36.f * scale * font_scale;
-  const float kStatusBarHeight = 32.f * scale * font_scale;
+  const float kToolsBarHeight =
+      show_toolbar ? 36.f * scale * font_scale : 0.0f;
+  const float kStatusBarHeight =
+      show_status_bar ? 32.f * scale * font_scale : 0.0f;
 
   const ImVec2 dockspace_pos{viewport->WorkPos.x,
                              viewport->WorkPos.y + kToolsBarHeight};
@@ -437,23 +439,23 @@ ImVec4 ConfigureDockingLayout() {
   }
 
   // Toolbar is fixed at the top.
-  {
+  if (show_toolbar) {
     platform::ScopedStyle style;
     style.Var(ImGuiStyleVar_WindowBorderSize, 1.0f);
     style.Var(ImGuiStyleVar_WindowRounding, 0.0f);
     style.Var(ImGuiStyleVar_WindowMinSize, ImVec2(1, 1));
     const float toolbar_vpad =
-        std::max(0.f, (kToolsBarHeight - ImGui::GetFrameHeight()) * 0.5f);
+        std::max(0.f, (36.f * scale * font_scale - ImGui::GetFrameHeight()) * 0.5f);
     style.Var(ImGuiStyleVar_WindowPadding, ImVec2(4 * scale, toolbar_vpad));
     ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, kToolsBarHeight),
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, 36.f * scale * font_scale),
                              ImGuiCond_Always);
     ImGui::Begin("ToolBar", nullptr, kFixedFlags);
     ImGui::End();
   }
 
   // StatusBar is fixed at the bottom.
-  {
+  if (show_status_bar) {
     platform::ScopedStyle style;
     style.Var(ImGuiStyleVar_WindowBorderSize, 1.0f);
     style.Var(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -632,7 +634,7 @@ bool FrameSelectionGui(mjvOption* opts) {
   return changed;
 }
 
-static std::string GetCameraName(const mjModel* model, const mjvCamera& camera,
+std::string GetCameraName(const mjModel* model, const mjvCamera& camera,
                                  int index) {
   static constexpr char kCameraTumbleName[] = "Free: tumble";
   static constexpr char kCameraWasdName[] = "Free: wasd";

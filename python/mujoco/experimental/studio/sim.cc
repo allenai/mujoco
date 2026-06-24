@@ -43,22 +43,19 @@ PYBIND11_MODULE(sim, m) {
       .def(py::init<>())
       .def(
           "advance",
-          [](StepControl& self, py::object model_obj, py::object data_obj,
-             py::object step_fn) {
-            auto& model = py::cast<mujoco::python::MjModelWrapper&>(model_obj);
-            auto& data = py::cast<mujoco::python::MjDataWrapper&>(data_obj);
-            if (step_fn.is_none()) {
-              py::gil_scoped_release no_gil;
-              return self.Advance(model.get(), data.get());
-            } else {
-              return self.Advance(
-                  model.get(), data.get(),
-                  [step_fn, model_obj, data_obj](mjModel*, mjData*) {
-                    step_fn(model_obj, data_obj);
-                  });
+          [](StepControl& self, py::object model_obj, py::object data_obj) {
+            mjModel* m = nullptr;
+            mjData* d = nullptr;
+            if (!model_obj.is_none()) {
+              m = py::cast<mujoco::python::MjModelWrapper&>(model_obj).get();
             }
+            if (!data_obj.is_none()) {
+              d = py::cast<mujoco::python::MjDataWrapper&>(data_obj).get();
+            }
+            py::gil_scoped_release no_gil;
+            return self.Advance(m, d);
           },
-          py::arg("model"), py::arg("data"), py::arg("step_fn") = py::none(),
+          py::arg("model"), py::arg("data"),
           "Step physics forward, respecting speed settings and refresh budget.")
       .def("force_sync", &StepControl::ForceSync,
            "Ensures the next Advance() will synchronize time and step once.")
