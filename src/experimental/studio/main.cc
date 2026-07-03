@@ -133,7 +133,7 @@ int main(int argc, char** argv, char** envp) {
 
   mujoco::platform::GraphicsMode gfx_mode =
       mujoco::platform::GraphicsModeFromString(
-          gfx, mujoco::platform::GraphicsMode::FilamentOpenGl);
+          gfx, mujoco::platform::GraphicsMode::FilamentVulkan);
 
   const int width = absl::GetFlag(FLAGS_window_width);
   const int height = absl::GetFlag(FLAGS_window_height);

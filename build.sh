@@ -29,9 +29,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${build_filament}" == "ON" ]]; then
-    export CC=/usr/bin/clang
-    export CXX=/usr/bin/clang++
-    export CXXFLAGS=-stdlib=libc++
+    # export CC=/usr/bin/clang
+    # export CXX=/usr/bin/clang++
+    # export CXXFLAGS=-stdlib=libc++
     build_simulate=OFF
 fi
 
@@ -53,10 +53,12 @@ CMAKE_CONFIG_ARGS=(
     "-DMUJOCO_USE_FILAMENT_MJR_COMPAT=${build_filament}"
     "-DMUJOCO_USE_FILAMENT=${build_filament}"
     "-DMUJOCO_BUILD_STUDIO=${build_studio}"
+    "-DFILAMENT_SUPPORTS_VULKAN=ON"
     "-DCMAKE_INSTALL_PREFIX=${USER_INSTALL_DIR}"
     "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF"
     "-DCMAKE_INSTALL_LIBDIR=lib"
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    # "-DMUJOCO_USE_DEFAULT_LD=ON"
 )
 
 if [[ -n "${CMAKE_ARGS}" ]]; then
