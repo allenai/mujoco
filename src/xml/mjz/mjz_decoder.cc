@@ -61,7 +61,8 @@ class ZipArchiveProvider : public mjpResourceProvider {
  public:
   ZipArchiveProvider(std::string name, const void* buffer, int nbuffer,
                      char* error, int error_sz)
-      : name_(std::move(name)), buffer_((char*)buffer, (char*)buffer + nbuffer) {
+      : name_(std::filesystem::path(name).generic_string()),
+        buffer_((char*)buffer, (char*)buffer + nbuffer) {
     mjp_defaultResourceProvider(this);
 
     std::memset(&archive_, 0, sizeof(archive_));
@@ -92,7 +93,8 @@ class ZipArchiveProvider : public mjpResourceProvider {
     const std::filesystem::path path(name_);
     root_model_ = (path / path.stem()).generic_string() + ".xml";
     if (!Contains(root_model_)) {
-      root_model_ = (path / path.stem() / path.stem()).string() + ".xml";
+      root_model_ =
+          (path / path.stem() / path.stem()).generic_string() + ".xml";
       if (!Contains(root_model_)) {
         SetError(error, error_sz, "Zip error: no root XML file found.");
         return;
@@ -111,13 +113,13 @@ class ZipArchiveProvider : public mjpResourceProvider {
     open = [](mjResource* resource) {
       ZipArchiveProvider* self = (ZipArchiveProvider*)resource->provider;
       auto path = std::filesystem::path(resource->name).lexically_normal();
-      const bool found = self->Contains(path.string());
+      const bool found = self->Contains(path.generic_string());
       return found ? 1 : 0;
     };
     read = [](mjResource* resource, const void** buffer) {
       ZipArchiveProvider* self = (ZipArchiveProvider*)resource->provider;
       auto path = std::filesystem::path(resource->name).lexically_normal();
-      std::span<char> bytes = self->Read(path.string());
+      std::span<char> bytes = self->Read(path.generic_string());
       *buffer = bytes.data();
       return static_cast<int>(bytes.size());
     };
@@ -231,9 +233,14 @@ mjPLUGIN_LIB_INIT(mjz_decoder) {
     if (size <= 0) {
       return nullptr;
     }
-    char error[1024];
-    return ParseZipBuffer(buffer, size, resource->name, const_cast<mjVFS*>(vfs),
-                          error, sizeof(error));
+    char error[1024] = "";
+    mjSpec* spec = ParseZipBuffer(buffer, size, resource->name,
+                                  const_cast<mjVFS*>(vfs), error,
+                                  sizeof(error));
+    if (!spec && error[0]) {
+      mju_warning("%s", error);
+    }
+    return spec;
   };
   mjp_registerDecoder(&decoder);
 }

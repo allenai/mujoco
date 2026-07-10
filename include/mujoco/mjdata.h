@@ -121,7 +121,7 @@ typedef struct mjData_ {
   // solver statistics
   mjSolverStat  solver[mjNISLAND*mjNSOLVER];  // solver statistics per island, per iteration
   int           solver_niter[mjNISLAND];      // number of solver iterations, per island
-  int           solver_nnz[mjNISLAND];        // number of nonzeros in Hessian or efc_AR, per island
+  int           solver_nnz[mjNISLAND];        // number of nonzeros in solver matrix, per island
   mjtNum        solver_fwdinv[2];             // forward-inverse comparison: qfrc, efc
 
   // diagnostics
@@ -247,8 +247,7 @@ typedef struct mjData_ {
 
   // computed by mj_fwdPosition/mj_makeM
   mjtNum* crb;               // com-based composite inertia and mass             (nbody x 10)
-  mjtNum* qM;                // inertia (sparse)                                 (nM x 1)
-  mjtNum* M;                 // reduced inertia (compressed sparse row)          (nC x 1)
+  mjtNum* M;                 // inertia (sparse)                                 (nC x 1)
 
   // computed by mj_fwdPosition/mj_factorM
   mjtNum* qLD;               // L'*D*L factorization of M (sparse)               (nC x 1)
@@ -297,7 +296,7 @@ typedef struct mjData_ {
   mjtNum* qDeriv;            // d (passive + actuator - bias) / d qvel           (nD x 1)
 
   // computed by mj_implicit/mju_factorLUSparse
-  mjtNum* qLU;               // sparse LU of (qM - dt*qDeriv)                    (nD x 1)
+  mjtNum* qLU;               // sparse LU of (M - dt*qDeriv)                     (nD x 1)
 
   //-------------------- POSITION, VELOCITY, CONTROL/ACCELERATION dependent
 

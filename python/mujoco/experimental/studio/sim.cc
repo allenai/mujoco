@@ -14,6 +14,8 @@
 
 // Python bindings for MuJoCo platform simulation components.
 
+#include <tuple>
+
 #include <mujoco/mujoco.h>
 #include <mujoco/experimental/platform/sim/step_control.h>
 #include "structs.h"
@@ -23,7 +25,7 @@ namespace py = pybind11;
 
 using StepControl = mujoco::platform::StepControl;
 
-PYBIND11_MODULE(sim, m) {
+PYBIND11_MODULE(sim, m, pybind11::mod_gil_not_used()) {
   py::module_::import("mujoco._structs");
   m.doc() = "MuJoCo platform simulation bindings for Link.";
 
@@ -70,5 +72,16 @@ PYBIND11_MODULE(sim, m) {
       .def("get_pause_state", &StepControl::GetPauseState,
            "Returns the current pause state.")
       .def("request_single_step", &StepControl::RequestSingleStep,
-           "Request a single step if paused.");
+           "Request a single step if paused.")
+      .def(
+          "get_noise_parameters",
+          [](const StepControl& self) {
+            float noise_scale, noise_rate;
+            self.GetNoiseParameters(noise_scale, noise_rate);
+            return std::make_tuple(noise_scale, noise_rate);
+          },
+          "Returns the noise parameters.")
+      .def("set_noise_parameters", &StepControl::SetNoiseParameters,
+           py::arg("noise_scale"), py::arg("noise_rate"),
+           "Sets the noise parameters.");
 }

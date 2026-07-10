@@ -466,7 +466,7 @@ adjust it properly through the XML.
 
 .. _option-sleep_tolerance:
 
-:at:`sleep_tolerance`: :at-val:`real, "1e-4"`
+:at:`sleep_tolerance`: :at-val:`real, "1e-3"`
    Velocity tolerance below which :ref:`sleeping<Sleeping>` is allowed.
 
 .. _option-sdf_iterations:
@@ -2151,6 +2151,31 @@ defined. Its body name is automatically defined as "world".
    a compilation error.
 
    See :ref:`implementation notes<siSleep>` for more details.
+
+.. _body-simple:
+
+:at:`simple`: :at-val:`[false, auto], "auto"`
+   Controls the *simple body* optimization. When a body qualifies as "simple", its inertial matrix block in the mass
+   matrix is diagonal, representing independent translational and rotational degrees of freedom. The optimization
+   omits storing of the zero-valued off-diagonal entries, reducing memory footprint and computation.
+
+   A body qualifies for this optimization if it satisfies all of the following:
+
+   - **Inertial frame alignment**: The body's inertial frame coincides with its body frame.
+   - **Kinematic root**: The body's parent is either the world body or a static body.
+   - **Leaf body**: The body is a leaf node in the kinematic tree (it has no child bodies).
+   - **Origin-centered joints**: All joints belonging to this body must reside at the body's origin.
+   - **Aligned joint axes**: Any hinge or slide joint axes must be aligned with the local coordinate axes, and at most
+     one joint with rotational degrees of freedom (hinge or ball) is permitted.
+   - **No inertia-bearing tendons**: The body must not contain sites or geoms used as wrap objects by any tendon that
+     has non-zero :ref:`armature<tendon-spatial-armature>`.
+
+   Setting this attribute to :at-val:`false` disables the optimization for this body. This is necessary for domain
+   randomization workflows where model parameters (such as joint/inertial offsets or angles) are perturbed dynamically
+   during simulation and updated via :ref:`mj_setConst`. Because a body compiled with the simple optimization active
+   cannot dynamically lose its simple state at runtime (which would require reallocation of sparse matrix structures),
+   any runtime parameter change that violates the simple conditions will trigger a validation error unless
+   ``simple="false"`` was explicitly declared in the XML.
 
 .. _body-user:
 
@@ -3996,33 +4021,53 @@ Associate this body with an :ref:`engine plugin<exPlugin>`. Either :at:`plugin` 
 :el-prefix:`body/` |-| **attach** |*|
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The :el:`attach` element is used to insert a sub-tree of bodies from another model into this model's kinematic tree.
-Unlike :ref:`include<include>`, which is implemented in the parser and is equivalent to copying and pasting XML from one
-file into another, :el:`attach` is implemented in the model compiler. In order to use this element, the sub-model must
-first be defined as an :ref:`asset<asset-model>`. When creating an attachment, the top body of the attached subtree is
+The :el:`attach` element is used to insert elements from another (child) model, or from the current model itself
+(self-attachment), into this (parent) model's kinematic tree. Unlike :ref:`include<include>`, which is implemented in
+the parser and is equivalent to copying and pasting XML from one file into another, :el:`attach` is implemented in the
+model compiler. In order to use this element to import from another model, the sub-model must first be defined as an
+:ref:`asset<asset-model>`. When creating an attachment, a frame, body or the entire child model in the child model is
 specified, and all referencing elements outside the kinematic tree (e.g., sensors and actuators), are also copied into
-the top-level model. Additionally, any elements referenced from within the attached subtree (e.g. defaults and assets)
-will be copied in to the top-level model. :el:`attach` is a :ref:`meta-element`, so upon saving all attachments will
-appear in the saved XML file. Note that this element is a subset of the functionality of the procedural
-:ref:`attachment<meAttachment>` functionality. As such, it shares the same limitations as described there. In addition,
-when the :el:`attach` element is used, it is not possible to attach an entire model (i.e. including all elements,
-referenced or not).
+the parent model. Additionally, any elements referenced from within the attached subtree (e.g. defaults and assets) will
+be copied in to the parent model. For self-attaching within the same model, the :at:`model` attribute is omitted, and a
+body or frame must be specified. :el:`attach` is a :ref:`meta-element`, so upon saving all attachments will appear in
+the saved XML file. Note that this element is a subset of the functionality of the procedural
+:ref:`attachment<meAttachment>` functionality. As such, it shares the same limitations as described there. See example
+`here <https://github.com/google-deepmind/mujoco/blob/main/test/xml/testdata/parent.xml>`__.
+
+.. admonition:: Known issues
+   :class: note
+
+   The following known limitations exist, to be addressed in a future release:
+
+   - All assets from the child model will be copied in, whether they are referenced or not.
+   - Circular references are not checked for and will lead to infinite loops.
+   - When attaching a model with :ref:`keyframes<keyframe>`, model compilation is required for the re-indexing to be
+     finalized. If a second attachment is performed without compilation, the keyframes from the first attachment will be
+     lost.
 
 .. _body-attach-model:
 
-:at:`model`: :at-val:`string, required`
-   The sub-model from which to attach a subtree.
+:at:`model`: :at-val:`string, optional`
+   The child model from which to attach a subtree or a frame.
+   If omitted, the attachment is performed within the current model (self-attachment).
 
 .. _body-attach-body:
 
 :at:`body`: :at-val:`string, optional`
-   Name of the body in the sub-model to attach here. The body and its subtree will be attached. If this attribute is not
-   specified, the contents of the world body will be attached in a new :ref:`frame<body-frame>`.
+   Name of the body in the child model to attach here. The body and its subtree will be attached. If neither this
+   attribute nor :ref:`frame<body-attach-frame>` is specified (only one allowed), the contents of the world body will
+   be attached in a new :ref:`frame<body-frame>`.
+
+.. _body-attach-frame:
+
+:at:`frame`: :at-val:`string, optional`
+   Name of the frame in the child model to attach here. If neither this attribute nor :ref:`body<body-attach-body>` is
+   specified (only one allowed), the contents of the world body will be attached in a new :ref:`frame<body-frame>`.
 
 .. _body-attach-prefix:
 
 :at:`prefix`: :at-val:`string, required`
-   Prefix to prepend to names of elements in the sub-model. This attribute is required to prevent name collisions with
+   Prefix to prepend to names of elements in the child model. This attribute is required to prevent name collisions with
    the parent or when attaching the same sub-tree multiple times.
 
 

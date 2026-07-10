@@ -1855,7 +1855,7 @@ static mjtNum PrimalSearch(mjPrimalContext* ctx, mjtNum tolerance, mjtNum ls_ite
   PrimalEval(ctx, &p1);
 
   // check for initial convergence
-  if (mju_abs(p1.deriv[0]) < gtol) {
+  if (mju_abs(p1.deriv[0]) < gtol && (p1.alpha == 0 || p1.cost < 0)) {
     if (p1.alpha == 0) {
       ctx->LSresult = 2;  // no improvement, initial convergence
     } else {
@@ -1916,7 +1916,7 @@ static mjtNum PrimalSearch(mjPrimalContext* ctx, mjtNum tolerance, mjtNum ls_ite
     PrimalEval(ctx, &p1);
 
     // check for convergence
-    if (mju_abs(p1.deriv[0]) < gtol) {
+    if (mju_abs(p1.deriv[0]) < gtol && p1.cost < 0) {
       ctx->LSslope = mju_abs(p1.deriv[0])*slopescl;
       *improvement = -p1.cost;
       return p1.alpha;                          // SUCCESS
@@ -2474,7 +2474,7 @@ static void mj_solPrimal(const mjModel* m, mjData* d, int island, int maxiter, i
         d->solver_nnz[island_stat] = nv*nv;
       }
     } else {
-      d->solver_nnz[island_stat] = 0;
+      d->solver_nnz[island_stat] = ctx.nJ;
     }
   }
 

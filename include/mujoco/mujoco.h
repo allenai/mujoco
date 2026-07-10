@@ -147,9 +147,9 @@ MJAPI mjSpec* mj_parse(const char* filename, const char* content_type,
 // Encode spec/model to a file using a registered encoder.
 // Returns the number of bytes written on success, -1 on failure.
 // Nullable: m, vfs, error
-MJAPI int mj_encode(const mjSpec* s, const mjModel* m, const char* filename,
-                    const char* content_type, const mjVFS* vfs, char* error,
-                    int error_sz);
+MJAPI mjtSize mj_encode(const mjSpec* s, const mjModel* m, const char* filename,
+                        const char* content_type, const mjVFS* vfs, char* error,
+                        int error_sz);
 
 // Compile spec to model.
 // Nullable: vfs
@@ -1483,10 +1483,10 @@ MJAPI void mjd_transitionFD(const mjModel* m, mjData* d, mjtNum eps, mjtBool flg
 //     DsDq: (nv x nsensordata)
 //     DsDv: (nv x nsensordata)
 //     DsDa: (nv x nsensordata)
-//     DmDq: (nv x nM)
+//     DmDq: (nv x nC)
 //   single-letter shortcuts:
 //     inputs: q=qpos, v=qvel, a=qacc
-//     outputs: f=qfrc_inverse, s=sensordata, m=qM
+//     outputs: f=qfrc_inverse, s=sensordata, m=M
 //   notes:
 //     optionally computes mass matrix Jacobian DmDq
 //     flg_actuation specifies whether to subtract qfrc_actuator from qfrc_inverse
@@ -1587,6 +1587,11 @@ MJAPI void mju_closeResource(mjResource* resource);
 // Set buffer to bytes read from the resource and return number of bytes in buffer;
 // return negative value if error.
 MJAPI int mju_readResource(mjResource* resource, const void** buffer);
+
+// Write resource data via its resource provider, return bytes written or -1 on error.
+// Nullable: vfs, error
+MJAPI mjtSize mju_writeResource(const char* name, const void* buffer, mjtSize nbytes,
+                                const mjVFS* vfs, char* error, size_t nerror);
 
 // For a resource with a name partitioned as {dir}{filename}, get the dir and ndir pointers.
 MJAPI void mju_getResourceDir(mjResource* resource, const char** dir, int* ndir);

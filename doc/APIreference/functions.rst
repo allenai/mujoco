@@ -66,11 +66,20 @@ Parse spec from a file.
 
 .. mujoco-include:: mj_encode
 
-Encode spec/model to a file using a registered encoder.
+Encode :ref:`mjSpec` or :ref:`mjModel` to a file. The output format is determined by the file extension (case insensitive) or
+``content_type``. Returns the number of bytes written on success, -1 on failure.
 
-Returns the number of bytes written on success, -1 on failure.
+The following formats are supported natively, without a registered encoder:
 
-*Nullable:* ``m``, ``vfs``, ``error``
+- **MJCF XML** — extension: ``.xml``, content_type: ``text/xml``. If an :ref:`mjSpec` is provided, saves via
+  :ref:`mj_saveXML`. Otherwise falls back to :ref:`mj_saveLastXML`, which requires a compiled :ref:`mjModel`.
+- **MJB** — extension: ``.mjb``. MuJoCo binary format. Requires a compiled :ref:`mjModel`.
+- **TXT** — extension: ``.txt``, content_type: ``text/plain``. Human-readable text dump via :ref:`mj_printModel`.
+  Requires a compiled :ref:`mjModel`.
+
+For all other formats, a registered encoder is looked up via :ref:`mjp_findEncoder`.
+
+*Nullable:* ``s``, ``m``, ``vfs``, ``error``
 
 .. _mj_compile:
 
@@ -1629,6 +1638,17 @@ Close a resource; no-op if resource is NULL.
 
 Set buffer to bytes read from the resource and return number of bytes in buffer;
 return negative value if error.
+
+.. _mju_writeResource:
+
+`mju_writeResource <#mju_writeResource>`__
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. mujoco-include:: mju_writeResource
+
+Write resource data via its resource provider, return bytes written or -1 on error.
+
+*Nullable:* ``vfs``, ``error``
 
 .. _mju_getResourceDir:
 
@@ -3189,7 +3209,7 @@ using finite-differencing. These matrices and their dimensions are:
    ``DsDq``, :math:`\partial s / \partial q`, ``nv x nsensordata``
    ``DsDv``, :math:`\partial s / \partial v`, ``nv x nsensordata``
    ``DsDa``, :math:`\partial s / \partial a`, ``nv x nsensordata``
-   ``DmDq``, :math:`\partial M / \partial q`, ``nv x nM``
+   ``DmDq``, :math:`\partial M / \partial q`, ``nv x nC``
 
 - All outputs are optional (can be NULL).
 - All outputs are transposed relative to Control Theory convention (i.e., column major).

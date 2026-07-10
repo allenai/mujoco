@@ -1002,6 +1002,11 @@ void mjCModel::ComputeSparseSizes() {
                            bodies_[parentid]->parent          &&
                            bodies_[parentid]->parent->id == 0 &&
                            bodies_[parentid]->dofnum == 0)));
+
+    // user override: disable simple optimization
+    if (!pb->simple) {
+      body_simple_pre[i] = 0;
+    }
   }
 
   // a parent body is never simple (unless world)
@@ -2815,6 +2820,11 @@ void mjCModel::CopyTree(mjModel* m) {
                          (m->body_rootid[i] == i ||
                           (m->body_parentid[parentid] == 0 &&
                            m->body_dofnum[parentid] == 0)));
+
+    // user override: disable simple optimization
+    if (!pb->simple) {
+      m->body_simple[i] = 0;
+    }
 
     // a parent body is never simple (unless world)
     if (m->body_parentid[i] > 0) {
@@ -5035,9 +5045,9 @@ void mjCModel::TryCompile(mjModel*& m, mjData*& d, const mjVFS* vfs) {
   // the internal compiler struct (not the spec) to avoid permanently mutating
   // the spec (which would cause usethread="false" to appear in a saved XML).
   struct ScopedDisableThreading {
-    mjtByte& ref;
-    mjtByte saved;
-    explicit ScopedDisableThreading(mjtByte& r) : ref(r), saved(r) { ref = 0; }
+    mjtBool& ref;
+    mjtBool saved;
+    explicit ScopedDisableThreading(mjtBool& r) : ref(r), saved(r) { ref = 0; }
     ~ScopedDisableThreading() { ref = saved; }
   } disable_usethread(compiler.usethread);
 #endif

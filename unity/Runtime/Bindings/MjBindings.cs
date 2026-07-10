@@ -5757,7 +5757,6 @@ public unsafe struct mjData_ {
   public int* moment_colind;
   public double* actuator_moment;
   public double* crb;
-  public double* qM;
   public double* M;
   public double* qLD;
   public double* qLDiagInv;
@@ -5867,11 +5866,11 @@ public unsafe struct mjsCompiler_ {
   public byte discardvisual;
   public byte usethread;
   public byte fusestatic;
-  public int inertiafromgeom;
+  public mjtInertiaFromGeom inertiafromgeom;
   public fixed int inertiagrouprange[2];
   public byte saveinertial;
-  public int alignfree;
-  public int conflict;
+  public byte alignfree;
+  public mjtConflict conflict;
   public mjLROpt_ LRopt;
   public void* meshdir;
   public void* texturedir;
@@ -6690,7 +6689,7 @@ public static unsafe extern void mj_clearCache(mjCache_* cache);
 public static unsafe extern mjModel_* mj_loadXML([MarshalAs(UnmanagedType.LPStr)]string filename, void* vfs, StringBuilder error, int error_sz);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
-public static unsafe extern int mj_encode(void* s, mjModel_* m, [MarshalAs(UnmanagedType.LPStr)]string filename, [MarshalAs(UnmanagedType.LPStr)]string content_type, void* vfs, StringBuilder error, int error_sz);
+public static unsafe extern UInt64 mj_encode(void* s, mjModel_* m, [MarshalAs(UnmanagedType.LPStr)]string filename, [MarshalAs(UnmanagedType.LPStr)]string content_type, void* vfs, StringBuilder error, int error_sz);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern int mj_saveLastXML([MarshalAs(UnmanagedType.LPStr)]string filename, mjModel_* m, StringBuilder error, int error_sz);

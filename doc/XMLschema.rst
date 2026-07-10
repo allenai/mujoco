@@ -714,6 +714,9 @@
             :ref:`sleep<body-sleep>`
 
          .. grid-item::
+            :ref:`simple<body-simple>`
+
+         .. grid-item::
             :ref:`user<body-user>`
 
 
@@ -982,6 +985,9 @@
 
             .. grid-item::
                :ref:`body<body-attach-body>`
+
+            .. grid-item::
+               :ref:`frame<body-attach-frame>`
 
             .. grid-item::
                :ref:`prefix<body-attach-prefix>`

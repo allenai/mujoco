@@ -193,6 +193,7 @@ _SKIPPED_UTILITY_FUNCTIONS: tuple[str, ...] = (
     "mju_isModifiedResource",
     "mju_openResource",
     "mju_readResource",
+    "mju_writeResource",
     # go/keep-sorted end
 )
 
@@ -660,7 +661,7 @@ FUNCTION_BOUNDS_CHECKS: Dict[str, str] = {
   CHECK_SIZE(DsDq, m.nv() * m.nsensordata());
   CHECK_SIZE(DsDv, m.nv() * m.nsensordata());
   CHECK_SIZE(DsDa, m.nv() * m.nsensordata());
-  CHECK_SIZE(DmDq, m.nv() * m.nM());
+  CHECK_SIZE(DmDq, m.nv() * m.nC());
     """.strip(),
     "mjd_subQuat": """
   CHECK_SIZE(qa, 4);

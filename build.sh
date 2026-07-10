@@ -11,6 +11,7 @@ cd ${ROOT_DIR}
 
 SHOW_HELP=false
 build_filament=OFF
+build_vulkan=OFF
 build_studio=OFF
 build_simulate=ON
 install_dir=""
@@ -21,6 +22,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help) SHOW_HELP=true; shift ;;
         --debug) build_type="Debug"; shift ;;
         --filament) build_filament=ON; shift ;;
+        --vulkan) build_vulkan=ON; shift ;;
         --studio) build_studio=ON; shift ;;
         --njobs) njobs="$2"; shift 2 ;;
         --install-dir) install_dir="$2"; shift 2 ;;
@@ -53,12 +55,16 @@ CMAKE_CONFIG_ARGS=(
     "-DMUJOCO_USE_FILAMENT_MJR_COMPAT=${build_filament}"
     "-DMUJOCO_USE_FILAMENT=${build_filament}"
     "-DMUJOCO_BUILD_STUDIO=${build_studio}"
-    "-DFILAMENT_SUPPORTS_VULKAN=ON"
+    "-DFILAMENT_SUPPORTS_VULKAN=${build_vulkan}"
     "-DCMAKE_INSTALL_PREFIX=${USER_INSTALL_DIR}"
-    "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF"
+    # "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF"
     "-DCMAKE_INSTALL_LIBDIR=lib"
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     # "-DMUJOCO_USE_DEFAULT_LD=ON"
+    # Several dependencies generate deprecated warnings on MacOS.
+    "-DCMAKE_CXX_FLAGS=\"-Wno-error=deprecated-declarations\""
+    # This flag defines _ITERATOR_DEBUG_LEVEL=0 which conflicts with debug builds
+    "-DFILAMENT_SHORTEN_MSVC_COMPILATION=OFF"
 )
 
 if [[ -n "${CMAKE_ARGS}" ]]; then
