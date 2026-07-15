@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 
+set +e
+
+git status > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    ROOT_DIR=$(pwd)
+else
+    echo "Going back to the root of the project"
+    ROOT_DIR="$(git rev-parse --show-toplevel)"
+fi
+
 set -e
 
 build_type="Release"
-
-echo "Going back to the root of the project"
-ROOT_DIR="$(git rev-parse --show-toplevel)"
 
 cd ${ROOT_DIR}
 
@@ -48,11 +55,11 @@ CMAKE_CONFIG_ARGS=(
     "-DCMAKE_BUILD_TYPE=${build_type}"
     "-DUSE_STATIC_LIBCXX=OFF"
     "-DBUILD_SHARED_LIBS=OFF"
-    "-DMUJOCO_BUILD_EXAMPLES=OFF"
+    "-DMUJOCO_BUILD_EXAMPLES=ON"
     "-DMUJOCO_BUILD_SIMULATE=${build_simulate}"
     "-DMUJOCO_BUILD_TESTS=OFF"
     "-DMUJOCO_WITH_USD=OFF"
-    "-DMUJOCO_USE_FILAMENT_MJR_COMPAT=${build_filament}"
+    "-DMUJOCO_USE_FILAMENT_MJR_COMPAT=OFF"
     "-DMUJOCO_USE_FILAMENT=${build_filament}"
     "-DMUJOCO_BUILD_STUDIO=${build_studio}"
     "-DFILAMENT_SUPPORTS_VULKAN=${build_vulkan}"

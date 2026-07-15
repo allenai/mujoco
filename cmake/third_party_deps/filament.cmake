@@ -48,7 +48,8 @@ if(WIN32)
 endif()
 
 set(FILAMENT_PATCH_COMMAND
-  git apply --reject --whitespace=fix ${mujoco_SOURCE_DIR}/cmake/filament-allow-clang-windows.patch
+  # git apply --reject --whitespace=fix ${mujoco_SOURCE_DIR}/cmake/filament-allow-clang-windows.patch
+  git apply --reject --whitespace=fix ${mujoco_SOURCE_DIR}/cmake/filament-fix-abseil-archlinux.patch
 )
 
 fetchpackage(
