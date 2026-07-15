@@ -616,6 +616,8 @@ public enum mjtMouse : int{
   mjMOUSE_ZOOM = 5,
   mjMOUSE_MOVE_V_REL = 6,
   mjMOUSE_MOVE_H_REL = 7,
+  mjMOUSE_TURN_V = 8,
+  mjMOUSE_TURN_H = 9,
 }
 public enum mjtPertBit : int{
   mjPERT_TRANSLATE = 1,
@@ -1019,6 +1021,8 @@ public unsafe struct mjModel_ {
   public UInt64 nq;
   public UInt64 nv;
   public UInt64 nu;
+  public UInt64 nactuator;
+  public UInt64 nout;
   public UInt64 na;
   public UInt64 nbody;
   public UInt64 nbvh;
@@ -1102,6 +1106,8 @@ public unsafe struct mjModel_ {
   public UInt64 nemax;
   public UInt64 njmax;
   public UInt64 nconmax;
+  public UInt64 npolygonmax;
+  public UInt64 nmeshdegmax;
   public UInt64 nuserdata;
   public UInt64 nsensordata;
   public UInt64 npluginstate;
@@ -1476,33 +1482,37 @@ public unsafe struct mjModel_ {
   public int* actuator_dyntype;
   public int* actuator_gaintype;
   public int* actuator_biastype;
-  public int* actuator_trnid;
-  public double* actuator_damping;
-  public double* actuator_dampingpoly;
-  public double* actuator_armature;
+  public int* actuator_ctrladr;
+  public int* actuator_ctrlnum;
+  public int* actuator_outadr;
+  public int* actuator_outnum;
   public int* actuator_actadr;
   public int* actuator_actnum;
-  public int* actuator_group;
-  public int* actuator_history;
-  public int* actuator_historyadr;
-  public double* actuator_delay;
-  public byte* actuator_ctrllimited;
-  public byte* actuator_forcelimited;
-  public byte* actuator_actlimited;
+  public int* actuator_trnid;
+  public double* actuator_cranklength;
   public double* actuator_dynprm;
   public double* actuator_gainprm;
   public double* actuator_biasprm;
-  public byte* actuator_actearly;
-  public double* actuator_ctrlrange;
-  public double* actuator_forcerange;
+  public byte* actuator_actlimited;
   public double* actuator_actrange;
+  public byte* actuator_actearly;
+  public int* actuator_history;
+  public int* actuator_historyadr;
+  public double* actuator_delay;
+  public double* actuator_damping;
+  public double* actuator_dampingpoly;
+  public double* actuator_armature;
+  public int* actuator_group;
+  public double* actuator_user;
+  public int* actuator_plugin;
+  public byte* actuator_ctrllimited;
+  public double* actuator_ctrlrange;
   public double* actuator_gear;
-  public double* actuator_cranklength;
+  public byte* actuator_forcelimited;
+  public double* actuator_forcerange;
   public double* actuator_acc0;
   public double* actuator_length0;
   public double* actuator_lengthrange;
-  public double* actuator_user;
-  public int* actuator_plugin;
   public int* sensor_type;
   public int* sensor_datatype;
   public int* sensor_needstage;
@@ -6181,6 +6191,12 @@ public unsafe struct mjrRect_ {
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public unsafe struct mjrRendererInfo_ {
+  public char* renderer;
+  public char* backend;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public unsafe struct mjrVertexAttribute_ {
   public void* bytes;
   public int usage;
@@ -7142,7 +7158,7 @@ public static unsafe extern double mjv_frustumHeight(mjvScene_* scn);
 public static unsafe extern void mjv_alignToCamera(double* res, double* vec, double* forward);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
-public static unsafe extern void mjv_moveCamera(mjModel_* m, int action, double reldx, double reldy, mjvScene_* scn, mjvCamera_* cam);
+public static unsafe extern void mjv_moveCamera(mjModel_* m, int action, double reldx, double reldy, mjvCamera_* cam);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mjv_movePerturb(mjModel_* m, mjData_* d, int action, double reldx, double reldy, mjvScene_* scn, mjvPerturb_* pert);
@@ -7212,6 +7228,12 @@ public static unsafe extern void mjv_cameraFrustum(float* zver, float* zhor, flo
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mjr_defaultContext(mjrContext_* con);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern void mjr_defaultRendererInfo(mjrRendererInfo_* info);
+
+[DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
+public static unsafe extern void mjr_getRendererInfo(mjrRendererInfo_* info);
 
 [DllImport("mujoco", CallingConvention = CallingConvention.Cdecl)]
 public static unsafe extern void mjr_makeContext(mjModel_* m, mjrContext_* con, int fontscale);

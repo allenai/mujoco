@@ -2780,7 +2780,7 @@ void mjCBody::Compile(void) {
   for (int i=0; i < geoms.size(); i++) {
     contype |= geoms[i]->contype;
     conaffinity |= geoms[i]->conaffinity;
-    margin = std::max(margin, geoms[i]->margin);
+    margin = std::max(margin, geoms[i]->margin + geoms[i]->gap);
   }
 
   // check conditions for free-joint alignment
@@ -6908,6 +6908,12 @@ mjCActuator::mjCActuator(mjCModel* _model, mjCDef* _def) {
   // no previous state when an actuator is created
   actadr_ = -1;
   actdim_ = -1;
+
+  // input and output blocks, set by mjCModel; all actuator types are currently 1x1
+  ctrladr_ = -1;
+  ctrlnum_ = 1;
+  outadr_ = -1;
+  outnum_ = 1;
 }
 
 

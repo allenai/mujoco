@@ -418,16 +418,20 @@ adjust it properly through the XML.
 
 :at:`iterations`: :at-val:`int, "100"`
    Maximum number of iterations of the constraint solver. When the warmstart attribute of :ref:`flag <option-flag>` is
-   enabled (which is the default), accurate results are obtained with fewer iterations. Larger and more complex systems
-   with many interacting constraints require more iterations. Note that mjData.solver contains statistics about solver
-   convergence, also shown in the profiler.
+   enabled (which is the default), accurate results are obtained with fewer iterations; if the warmstarted solution
+   already satisfies the tolerance, the CG and Newton solvers terminate with zero iterations. Larger and more complex
+   systems with many interacting constraints require more iterations. Note that mjData.solver contains statistics about
+   solver convergence, also shown in the profiler.
 
 .. _option-tolerance:
 
 :at:`tolerance`: :at-val:`real, "1e-8"`
    Tolerance threshold used for early termination of the iterative solver. For PGS, the threshold is applied to the cost
    improvement between two iterations. For CG and Newton, it is applied to the smaller of the cost improvement and the
-   gradient norm. Set the tolerance to 0 to disable early termination.
+   gradient norm. For Newton, it is additionally applied to the Newton decrement :math:`\tfrac{1}{2} g^T H^{-1} g`, the
+   predicted cost improvement of the next iteration. Before the first iteration, CG and Newton also apply it to a
+   :ref:`convergence certificate<soAlgorithms>` of the warmstarted solution, possibly terminating with zero iterations.
+   Set the tolerance to 0 to disable early termination.
 
 .. _option-ls_iterations:
 
@@ -657,22 +661,13 @@ from its default.
 .. _option-flag-invdiscrete:
 
 :at:`invdiscrete`: :at-val:`[disable, enable], "disable"`
-   This dual-purpose flag enables discrete-time inverse dynamics and disables :ref:`midpoint integration<geMidpoint>`.
-
-   Enable discrete-time inverse dynamics
-     This flag **enables** discrete-time inverse dynamics with :ref:`mj_inverse` for all
-     :ref:`integrators<option-integrator>` other than ``RK4``. Recall from the :ref:`numerical
-     integration<geIntegration>` section that the one-step integrators (``Euler``, ``implicit`` and ``implicitfast``),
-     modify the mass matrix :math:`M \rightarrow M-hD`. This implies that finite-differenced accelerations
-     :math:`(v_{t+h} - v_t)/h` will not correspond to the continuous-time acceleration ``mjData.qacc``. When this flag
-     is enabled, :ref:`mj_inverse` will interpret ``qacc`` as having been computed from the difference of two sequential
-     velocities, and undo the above modification.
-
-   Disable midpoint integration
-     Additionally and relatedly, this flag **disables** :ref:`midpoint integration<geMidpoint>` for free bodies, which
-     would otherwise break the linear relationship between finite-differenced velocities and forces assumed by discrete
-     inverse dynamics. Note that disabling midpoint integration might be useful for debugging or for other reasons,
-     regardless or whether inverse dynamics are used.
+   This flag enables discrete-time inverse dynamics with :ref:`mj_inverse` for all
+   :ref:`integrators<option-integrator>` other than ``RK4``. Recall from the
+   :ref:`numerical integration<geIntegration>` section that the one-step integrators (``Euler``, ``implicit`` and
+   ``implicitfast``), modify the mass matrix :math:`M \rightarrow M-hD`. This implies that finite-differenced
+   accelerations :math:`(v_{t+h} - v_t)/h` will not correspond to the continuous-time acceleration ``mjData.qacc``.
+   When this flag is enabled, :ref:`mj_inverse` will interpret ``qacc`` as having been computed from the difference of
+   two sequential velocities, and undo the above modification.
 
 
 .. _option-flag-multiccd:
