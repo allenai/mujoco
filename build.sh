@@ -95,6 +95,7 @@ cmake --install build
 echo "Copy plugins to install directory"
 
 mkdir -p ${USER_INSTALL_DIR}/mujoco_plugin
+cp ${ROOT_DIR}/build/lib/lib*.a ${USER_INSTALL_DIR}/lib
 cp ${ROOT_DIR}/build/lib/libactuator.* ${USER_INSTALL_DIR}/mujoco_plugin
 cp ${ROOT_DIR}/build/lib/libelasticity.* ${USER_INSTALL_DIR}/mujoco_plugin
 cp ${ROOT_DIR}/build/lib/libsensor.* ${USER_INSTALL_DIR}/mujoco_plugin
