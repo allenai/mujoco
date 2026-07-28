@@ -27,6 +27,7 @@
 #include <filesystem>  // NOLINT(build/c++17)
 #include <functional>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -52,6 +53,7 @@
 #include "engine/engine_setconst.h"
 #include "engine/engine_support.h"
 #include "engine/engine_util_errmem.h"
+#include "engine/engine_util_solve.h"
 #include "engine/engine_util_misc.h"
 #include "user/user_api.h"
 #include "user/user_objects.h"
@@ -1212,6 +1214,8 @@ void mjCModel::Clear() {
   nflexelemdata = 0;
   nflexstiffness = 0;
   nflexbending = 0;
+  nefm0dof = 0;
+  nefm0L = 0;
   nflexelemedge = 0;
   nflexshelldata = 0;
   nflexevpair = 0;
@@ -2245,6 +2249,83 @@ void mjCModel::SetSizes() {
       continue;
     }
 
+    // bending factor sizes: symbolic reverse-Cholesky count on the (M + K_bend) pattern.
+    // Bending couples only same-coordinate dofs of unpinned flap vertices, so the pattern is
+    // three interleaved copies of the vertex flap adjacency. The count must match the symbolic
+    // factorization performed in mj_setConst (asserted there).
+    if (flexes_[i]->dim == 2 && !flexes_[i]->bending.empty()) {
+      const mjCFlex* fl = flexes_[i];
+      int nvrt = fl->nvert;
+
+      // unpinned vertices -> compact slots (vertex enumeration order)
+      std::vector<int> slot(nvrt, -1);
+      int nfree = 0;
+      for (int v=0; v < nvrt; v++) {
+        if (!bodies_[fl->vertbodyid[v]]->joints.empty()) {
+          slot[v] = nfree++;
+        }
+      }
+      if (!nfree) {
+        continue;
+      }
+
+      // vertex adjacency from 4-vertex flap stencils (self excluded; diagonal is implicit)
+      std::vector<std::set<int>> adj(nfree);
+      for (const auto& flap : fl->flaps) {
+        if (flap.vertices[3] < 0) {
+          continue;
+        }
+        for (int a=0; a < 4; a++) {
+          int sa = slot[flap.vertices[a]];
+          if (sa < 0) continue;
+          for (int b=0; b < 4; b++) {
+            int sb = slot[flap.vertices[b]];
+            if (sb >= 0 && sb != sa) {
+              adj[sa].insert(sb);
+            }
+          }
+        }
+      }
+
+      // dof-level upper-triangle pattern: row 3*s+k has columns {3*t+k : t > s, t in adj(s)}
+      int n = 3*nfree;
+      std::vector<std::vector<int>> upper(n);
+      for (int s=0; s < nfree; s++) {
+        for (int t : adj[s]) {
+          if (t > s) {
+            for (int k=0; k < 3; k++) {
+              upper[3*s+k].push_back(3*t+k);
+            }
+          }
+        }
+      }
+      for (auto& row : upper) {
+        std::sort(row.begin(), row.end());
+      }
+
+      // flatten the pattern to CSR and count fill with the engine's symbolic factorization
+      // (d == NULL: no mjData exists yet, scratch is heap-allocated)
+      std::vector<int> u_rownnz(n), u_rowadr(n), u_colind;
+      int u_nnz = 0;
+      for (int r=0; r < n; r++) {
+        u_nnz += (int)upper[r].size();
+      }
+      u_colind.reserve(u_nnz);
+      for (int r=0; r < n; r++) {
+        u_rownnz[r] = (int)upper[r].size();
+        u_rowadr[r] = (int)u_colind.size();
+        u_colind.insert(u_colind.end(), upper[r].begin(), upper[r].end());
+      }
+      std::vector<int> L_rownnz(n), L_rowadr(n), LT_rownnz(n), LT_rowadr(n);
+      mjtSize nnz = mju_cholFactorSymbolic(NULL, L_rownnz.data(), L_rowadr.data(),
+                                           NULL, LT_rownnz.data(), LT_rowadr.data(), NULL,
+                                           u_rownnz.data(), u_rowadr.data(), u_colind.data(),
+                                           n, NULL);
+
+      nefm0dof += n;
+      nefm0L += nnz;
+    }
+
     // count number of non-zero elements in the edge Jacobian matrix
     for (const auto& edge : flexes_[i]->edge) {
       mjCBody* b1 = bodies_[flexes_[i]->vertbodyid[edge.first]];
@@ -2981,6 +3062,8 @@ void mjCModel::CopyTree(mjModel* m) {
       mjuu_copyvec(m->geom_solimp+mjNIMP*gid, pg->solimp, mjNIMP);
       m->geom_margin[gid] = (mjtNum)pg->margin;
       m->geom_gap[gid] = (mjtNum)pg->gap;
+      mjuu_copyvec(m->geom_surfacevel+6*gid, pg->surfacevel, 6);
+      m->geom_adhesion[gid] = (mjtNum)pg->adhesion;
       mjuu_copyvec(m->geom_fluid+mjNFLUID*gid, pg->fluid, mjNFLUID);
       mjuu_copyvec(m->geom_user+nuser_geom*gid, pg->get_userdata().data(), nuser_geom);
       mjuu_copyvec(m->geom_rgba+4*gid, pg->rgba, 4);
@@ -3311,6 +3394,11 @@ int mjCModel::CountNJmom(const mjModel* m) {
 
     // process according to transmission type
     switch ((mjtTrn)m->actuator_trntype[i]) {
+      case mjTRN_SO3:
+        // ball joint: 3 identity rows; site+refsite: 3 dense rows
+        count += m->actuator_trnid[2*i+1] >= 0 ? 3*nv : 3;
+        break;
+
       case mjTRN_JOINT:
       case mjTRN_JOINTINPARENT:
         switch ((mjtJoint)m->jnt_type[id]) {
@@ -3845,6 +3933,7 @@ void mjCModel::CopyObjects(mjModel* m) {
     mjuu_copyvec(m->pair_solimp+mjNIMP*i, pairs_[i]->solimp, mjNIMP);
     m->pair_margin[i] = (mjtNum)pairs_[i]->margin;
     m->pair_gap[i] = (mjtNum)pairs_[i]->gap;
+    m->pair_adhesion[i] = (mjtNum)pairs_[i]->adhesion;
     mjuu_copyvec(m->pair_friction+5*i, pairs_[i]->friction, 5);
   }
 
@@ -3927,7 +4016,7 @@ void mjCModel::CopyObjects(mjModel* m) {
     mjCActuator* pac = actuators_[i];
 
     // set fields
-    m->actuator_trntype[i] = pac->trntype;
+    m->actuator_trntype[i] = pac->so3_ ? mjTRN_SO3 : pac->trntype;
     m->actuator_dyntype[i] = pac->dyntype;
     m->actuator_gaintype[i] = pac->gaintype;
     m->actuator_biastype[i] = pac->biastype;
@@ -3940,9 +4029,10 @@ void mjCModel::CopyObjects(mjModel* m) {
     adr += m->actuator_actnum[i];
     m->actuator_group[i] = pac->group;
 
-    // input and output blocks; all actuator types are currently 1x1
+    // input and output blocks
     m->actuator_ctrladr[i] = ctrladr;
     m->actuator_ctrlnum[i] = pac->ctrlnum_;
+    m->actuator_ctrlspec[i] = pac->ctrlspec_;
     pac->ctrladr_ = ctrladr;
     ctrladr += pac->ctrlnum_;
     m->actuator_outadr[i] = outadr;
@@ -3971,6 +4061,8 @@ void mjCModel::CopyObjects(mjModel* m) {
     mjuu_copyvec(m->actuator_gainprm + mjNGAIN*i, pac->gainprm, mjNGAIN);
     mjuu_copyvec(m->actuator_biasprm + mjNBIAS*i, pac->biasprm, mjNBIAS);
     mjuu_copyvec(m->actuator_actrange + 2*i, pac->actrange, 2);
+    m->actuator_forcelimited[i] = (mjtBool)pac->is_forcelimited();
+    mjuu_copyvec(m->actuator_forcerange + 2*i, pac->forcerange, 2);
     mjuu_copyvec(m->actuator_user+nuser_actuator*i, pac->get_userdata().data(), nuser_actuator);
 
     // per-input arrays, at the actuator's ctrl block
@@ -3982,8 +4074,6 @@ void mjCModel::CopyObjects(mjModel* m) {
 
     // per-output arrays, at the actuator's output block
     for (int j=m->actuator_outadr[i]; j < m->actuator_outadr[i]+m->actuator_outnum[i]; j++) {
-      m->actuator_forcelimited[j] = (mjtBool)pac->is_forcelimited();
-      mjuu_copyvec(m->actuator_forcerange + 2*j, pac->forcerange, 2);
       mjuu_copyvec(m->actuator_gear + 6*j, pac->gear, 6);
       mjuu_copyvec(m->actuator_lengthrange + 2*j, pac->lengthrange, 2);
     }
@@ -5279,7 +5369,8 @@ void mjCModel::TryCompile(mjModel*& m, mjData*& d, const mjVFS* vfs) {
                nq, nv, nu, nactuator, nout, na,
                nbody, nbvh, nbvhstatic, nbvhdynamic, noct, njnt, ntree, nM, nB, nC,
                nD, ngeom, nsite, ncam, nlight, nflex, nflexnode, nflexvert, nflexedge, nflexelem,
-               nflexelemdata, nflexstiffness, nflexbending, nflexelemedge, nflexshelldata,
+               nflexelemdata, nflexstiffness, nflexbending, nefm0dof, nefm0L,
+               nflexelemedge, nflexshelldata,
                nflexevpair, nflextexcoord, nJfe, nJfv, nmesh, nmeshvert, nmeshnormal, nmeshtexcoord,
                nmeshface, nmeshgraph, nmeshpoly, nmeshpolyvert, nmeshpolymap, nskin, nskinvert,
                nskintexvert, nskinface, nskinbone, nskinbonevert, nhfield, nhfielddata, ntex,
@@ -5759,6 +5850,8 @@ bool mjCModel::CopyBack(const mjModel* m) {
     pg->solmix = (double)m->geom_solmix[i];
     pg->margin = (double)m->geom_margin[i];
     pg->gap = (double)m->geom_gap[i];
+    mjuu_copyvec(pg->surfacevel, m->geom_surfacevel+6*i, 6);
+    pg->adhesion = (double)m->geom_adhesion[i];
 
     if (nuser_geom) {
       mjuu_copyvec(pg->userdata_.data(), m->geom_user + nuser_geom*i, nuser_geom);
@@ -5842,6 +5935,7 @@ bool mjCModel::CopyBack(const mjModel* m) {
     mjuu_copyvec(pairs_[i]->solimp, m->pair_solimp+mjNIMP*i, mjNIMP);
     pairs_[i]->margin = (double)m->pair_margin[i];
     pairs_[i]->gap = (double)m->pair_gap[i];
+    pairs_[i]->adhesion = (double)m->pair_adhesion[i];
     mjuu_copyvec(pairs_[i]->friction, m->pair_friction+5*i, 5);
   }
 
@@ -5884,7 +5978,7 @@ bool mjCModel::CopyBack(const mjModel* m) {
     mjuu_copyvec(pa->gainprm, m->actuator_gainprm+i*mjNGAIN, mjNGAIN);
     mjuu_copyvec(pa->biasprm, m->actuator_biasprm+i*mjNBIAS, mjNBIAS);
     mjuu_copyvec(pa->ctrlrange, m->actuator_ctrlrange+2*m->actuator_ctrladr[i], 2);
-    mjuu_copyvec(pa->forcerange, m->actuator_forcerange+2*m->actuator_outadr[i], 2);
+    mjuu_copyvec(pa->forcerange, m->actuator_forcerange+2*i, 2);
     mjuu_copyvec(pa->actrange, m->actuator_actrange+2*i, 2);
     mjuu_copyvec(pa->lengthrange, m->actuator_lengthrange+2*m->actuator_outadr[i], 2);
     mjuu_copyvec(pa->gear, m->actuator_gear+6*m->actuator_outadr[i], 6);

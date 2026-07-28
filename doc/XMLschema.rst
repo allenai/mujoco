@@ -909,6 +909,12 @@
                :ref:`gap<body-geom-gap>`
 
             .. grid-item::
+               :ref:`surfacevel<body-geom-surfacevel>`
+
+            .. grid-item::
+               :ref:`adhesion<body-geom-adhesion>`
+
+            .. grid-item::
                :ref:`fromto<body-geom-fromto>`
 
             .. grid-item::
@@ -1372,6 +1378,12 @@
 
                .. grid-item::
                   :ref:`gap<composite-geom-gap>`
+
+               .. grid-item::
+                  :ref:`surfacevel<composite-geom-surfacevel>`
+
+               .. grid-item::
+                  :ref:`adhesion<composite-geom-adhesion>`
 
 
          .. dropdown:: :ref:`site<composite-site>` :octicon:`dot`
@@ -1864,6 +1876,9 @@
 
             .. grid-item::
                :ref:`margin<contact-pair-margin>`
+
+            .. grid-item::
+               :ref:`adhesion<contact-pair-adhesion>`
 
 
       .. dropdown:: :ref:`exclude<contact-exclude>` |*|
@@ -2361,6 +2376,9 @@
                :ref:`actdim<actuator-general-actdim>`
 
             .. grid-item::
+               :ref:`input<actuator-general-input>`
+
+            .. grid-item::
                :ref:`dyntype<actuator-general-dyntype>`
 
             .. grid-item::
@@ -2655,6 +2673,9 @@
                :ref:`forcelimited<actuator-intvelocity-forcelimited>`
 
             .. grid-item::
+               :ref:`actlimited<actuator-intvelocity-actlimited>`
+
+            .. grid-item::
                :ref:`ctrlrange<actuator-intvelocity-ctrlrange>`
 
             .. grid-item::
@@ -2713,6 +2734,63 @@
 
             .. grid-item::
                :ref:`dampratio<actuator-intvelocity-dampratio>`
+
+
+      .. dropdown:: :ref:`orientation<actuator-orientation>` |*|
+
+         .. grid:: 2 3 4 4
+            :gutter: 0
+
+            .. grid-item::
+               :ref:`name<actuator-orientation-name>`
+
+            .. grid-item::
+               :ref:`class<actuator-orientation-class>`
+
+            .. grid-item::
+               :ref:`group<actuator-orientation-group>`
+
+            .. grid-item::
+               :ref:`nsample<actuator-orientation-nsample>`
+
+            .. grid-item::
+               :ref:`interp<actuator-orientation-interp>`
+
+            .. grid-item::
+               :ref:`delay<actuator-orientation-delay>`
+
+            .. grid-item::
+               :ref:`forcelimited<actuator-orientation-forcelimited>`
+
+            .. grid-item::
+               :ref:`ctrlrange<actuator-orientation-ctrlrange>`
+
+            .. grid-item::
+               :ref:`forcerange<actuator-orientation-forcerange>`
+
+            .. grid-item::
+               :ref:`user<actuator-orientation-user>`
+
+            .. grid-item::
+               :ref:`joint<actuator-orientation-joint>`
+
+            .. grid-item::
+               :ref:`site<actuator-orientation-site>`
+
+            .. grid-item::
+               :ref:`refsite<actuator-orientation-refsite>`
+
+            .. grid-item::
+               :ref:`kp<actuator-orientation-kp>`
+
+            .. grid-item::
+               :ref:`kv<actuator-orientation-kv>`
+
+            .. grid-item::
+               :ref:`dampratio<actuator-orientation-dampratio>`
+
+            .. grid-item::
+               :ref:`input<actuator-orientation-input>`
 
 
       .. dropdown:: :ref:`damper<actuator-damper>` |*|
@@ -5493,6 +5571,12 @@
                :ref:`gap<default-geom-gap>`
 
             .. grid-item::
+               :ref:`surfacevel<default-geom-surfacevel>`
+
+            .. grid-item::
+               :ref:`adhesion<default-geom-adhesion>`
+
+            .. grid-item::
                :ref:`fromto<default-geom-fromto>`
 
             .. grid-item::
@@ -5714,6 +5798,9 @@
             .. grid-item::
                :ref:`margin<default-pair-margin>`
 
+            .. grid-item::
+               :ref:`adhesion<default-pair-adhesion>`
+
 
       .. dropdown:: :ref:`equality<default-equality>` :octicon:`dot`
 
@@ -5836,6 +5923,9 @@
 
             .. grid-item::
                :ref:`actdim<default-general-actdim>`
+
+            .. grid-item::
+               :ref:`input<default-general-input>`
 
             .. grid-item::
                :ref:`dyntype<default-general-dyntype>`
@@ -6022,6 +6112,9 @@
 
             .. grid-item::
                :ref:`forcelimited<default-intvelocity-forcelimited>`
+
+            .. grid-item::
+               :ref:`actlimited<default-intvelocity-actlimited>`
 
             .. grid-item::
                :ref:`ctrlrange<default-intvelocity-ctrlrange>`

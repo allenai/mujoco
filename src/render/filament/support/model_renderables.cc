@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "render/filament/support/renderable_manager.h"
+#include "render/filament/support/model_renderables.h"
 
-#include <cmath>
+#include <array>
 #include <memory>
-#include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
+#include <math/TVecHelpers.h>
 #include <math/mat3.h>
 #include <math/quat.h>
-#include <math/TVecHelpers.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
 #include <mujoco/mjdata.h>
@@ -142,7 +142,8 @@ static void SetGeomMesh(mjrfRenderable* renderable, ModelObjects* model_objs,
     }
     case mjGEOM_HFIELD: {
       const int data_id = model->geom_dataid[geom_index];
-      mjrf_setRenderableMesh(renderable, model_objs->GetHeightField(data_id), 0, 0);
+      mjrf_setRenderableMesh(renderable, model_objs->GetHeightField(data_id), 0,
+                             0);
       break;
     }
     case mjGEOM_FLEX:
@@ -175,8 +176,8 @@ static void SetGeomMesh(mjrfRenderable* renderable, ModelObjects* model_objs,
   }
 }
 
-RenderableManager::RenderableManager(mjrfScene* scene,
-                                     ModelObjects* model_objects)
+ModelRenderables::ModelRenderables(mjrfScene* scene,
+                                   ModelObjects* model_objects)
     : scene_(scene), model_objects_(model_objects) {
   mjv_defaultOption(&vopts_);
 
@@ -190,15 +191,17 @@ RenderableManager::RenderableManager(mjrfScene* scene,
   tendons_.resize(model_objects_->GetModel()->ntendon);
 }
 
-RenderableManager::~RenderableManager() {
+ModelRenderables::~ModelRenderables() {
   for (auto& renderable : geoms_) {
     mjrf_removeRenderableFromScene(scene_, renderable.get());
   }
   for (auto& renderable : sites_) {
     mjrf_removeRenderableFromScene(scene_, renderable.get());
   }
-  for (auto& renderable : flexes_) {
-    mjrf_removeRenderableFromScene(scene_, renderable.get());
+  for (auto& parts : flexes_) {
+    for (auto& renderable : parts) {
+      mjrf_removeRenderableFromScene(scene_, renderable.get());
+    }
   }
   for (auto& renderable : skins_) {
     mjrf_removeRenderableFromScene(scene_, renderable.get());
@@ -208,15 +211,14 @@ RenderableManager::~RenderableManager() {
       mjrf_removeRenderableFromScene(scene_, renderable.get());
     }
   }
-  for (auto& renderable : sliders_) {
-    mjrf_removeRenderableFromScene(scene_, renderable.get());
-  }
-  for (auto& renderable : cranks_) {
-    mjrf_removeRenderableFromScene(scene_, renderable.get());
+  for (auto& [_, renderables] : slider_cranks_) {
+    for (auto& renderable : renderables) {
+      mjrf_removeRenderableFromScene(scene_, renderable.get());
+    }
   }
 }
 
-void RenderableManager::Update(const mjData* data) {
+void ModelRenderables::Update(const mjData* data) {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
 
@@ -232,15 +234,29 @@ void RenderableManager::Update(const mjData* data) {
     mjrf_setRenderableTransform(sites_[i].get(), pos.v, mat.asArray());
   }
 
-  for (int i = 0; i < model->nflex; ++i) {
-    const int flex_layer = vopts_.flex_layer;
-    const bool smooth_skinning = vopts_.flags[mjVIS_FLEXSKIN];
-    const bool edges = !smooth_skinning && vopts_.flags[mjVIS_FLEXEDGE];
-    const bool vertices = !smooth_skinning && vopts_.flags[mjVIS_FLEXVERT];
-    auto mesh = CreateFlexMesh(ctx, model, data, i, flex_layer,
-                               smooth_skinning, edges, vertices);
-    mjrf_setRenderableMesh(flexes_[i].get(), mesh.get(), 0, 0);
-    flex_meshes_[i] = std::move(mesh);
+  if (vopts_.flags[mjVIS_FLEXSKIN]) {
+    for (int i = 0; i < model->nflex; ++i) {
+      const int dim = model->flex_dim[i];
+      if (dim > 1) {
+        auto mesh = CreateFlexMesh(ctx, model, data, i);
+        mjrf_setRenderableMesh(flexes_[i][0].get(), mesh.get(), 0, 0);
+        flex_meshes_[i] = std::move(mesh);
+      } else {
+        const int vertadr = model->flex_vertadr[i];
+        const int edgeadr = model->flex_edgeadr[i];
+        const int edgenum = model->flex_edgenum[i];
+        const float radius = model->flex_radius[i];
+        auto& edges = flexes_[i];
+        for (int j = 0; j < edgenum; ++j) {
+          const int e = j + edgeadr;
+          const int idx0 = model->flex_edge[2 * e];
+          const int idx1 = model->flex_edge[2 * e + 1];
+          const float3 v0 = ReadFloat3(data->flexvert_xpos, vertadr + idx0);
+          const float3 v1 = ReadFloat3(data->flexvert_xpos, vertadr + idx1);
+          Connect(edges[j].get(), v0, v1, radius);
+        }
+      }
+    }
   }
 
   for (int i = 0; i < model->nskin; ++i) {
@@ -253,12 +269,10 @@ void RenderableManager::Update(const mjData* data) {
     UpdateSpatialTendons(data, i);
   }
 
-  int renderable_index = 0;
   for (int i = 0; i < model->nu; i++) {
-    if (model->actuator_trntype[i] != mjTRN_SLIDERCRANK) {
-      continue;
+    if (model->actuator_trntype[i] == mjTRN_SLIDERCRANK) {
+      UpdateSliderCranks(data, i);
     }
-    UpdateSliderCranks(data, i, renderable_index++);
   }
 
   if (vopts_.flags[mjVIS_ISLAND]) {
@@ -293,13 +307,13 @@ void RenderableManager::Update(const mjData* data) {
       if (model->flex_interp[i]) {
         int nodeadr = model->flex_nodeadr[i];
         for (int j = 0; j < model->flex_nodenum[i] && bodyid < 0; j++) {
-          int b = model->flex_nodebodyid[nodeadr+j];
+          int b = model->flex_nodebodyid[nodeadr + j];
           if (model->body_treeid[b] >= 0) bodyid = b;
         }
       } else {
         int vertadr = model->flex_vertadr[i];
-        for (int j=0; j < model->flex_vertnum[i] && bodyid < 0; j++) {
-          int b = model->flex_vertbodyid[vertadr+j];
+        for (int j = 0; j < model->flex_vertnum[i] && bodyid < 0; j++) {
+          int b = model->flex_vertbodyid[vertadr + j];
           if (model->body_treeid[b] >= 0) bodyid = b;
         }
       }
@@ -319,17 +333,19 @@ void RenderableManager::Update(const mjData* data) {
         island_id = model->tree_dofadr[tree];
       }
 
-      mjrfMaterial material;
-      mjrf_getRenderableMaterial(flexes_[i].get(), &material);
-      material.island_id = island_id;
-      material.sleep_state = awake ? mjS_AWAKE : mjS_ASLEEP;
-      mjrf_setRenderableMaterial(flexes_[i].get(), &material);
+      for (auto& renderable : flexes_[i]) {
+        mjrfMaterial material;
+        mjrf_getRenderableMaterial(renderable.get(), &material);
+        material.island_id = island_id;
+        material.sleep_state = awake ? mjS_AWAKE : mjS_ASLEEP;
+        mjrf_setRenderableMaterial(renderable.get(), &material);
+      }
     }
   }
 }
 
-mjrfRenderable* RenderableManager::GetRenderable(mjtObj obj_type,
-                                                 int obj_index) {
+mjrfRenderable* ModelRenderables::GetRenderable(mjtObj obj_type, int obj_index,
+                                                int sub_index) {
   switch (obj_type) {
     case mjOBJ_GEOM:
       if (obj_index >= 0 && obj_index < geoms_.size()) {
@@ -343,7 +359,10 @@ mjrfRenderable* RenderableManager::GetRenderable(mjtObj obj_type,
       break;
     case mjOBJ_FLEX:
       if (obj_index >= 0 && obj_index < flexes_.size()) {
-        return flexes_[obj_index].get();
+        auto& parts = flexes_[obj_index];
+        if (sub_index >= 0 && sub_index < parts.size()) {
+          return parts[sub_index].get();
+        }
       }
       break;
     case mjOBJ_SKIN:
@@ -351,9 +370,20 @@ mjrfRenderable* RenderableManager::GetRenderable(mjtObj obj_type,
         return skins_[obj_index].get();
       }
       break;
+    case mjOBJ_TENDON:
+      if (obj_index >= 0 && obj_index < tendons_.size()) {
+        auto& segments = tendons_[obj_index];
+        if (sub_index >= 0 && sub_index < segments.size()) {
+          return segments[sub_index].get();
+        }
+      }
+      break;
     case mjOBJ_ACTUATOR:
-      if (obj_index >= 0 && obj_index < sliders_.size()) {
-        return sliders_[obj_index].get();
+      if (auto it = slider_cranks_.find(obj_index);
+          it != slider_cranks_.end()) {
+        if (sub_index >= 0 && sub_index < it->second.size()) {
+          return it->second[sub_index].get();
+        }
       }
       break;
     case mjOBJ_BODY: {
@@ -376,7 +406,7 @@ mjrfRenderable* RenderableManager::GetRenderable(mjtObj obj_type,
   return nullptr;
 }
 
-void RenderableManager::AddGeomGeoms() {
+void ModelRenderables::AddGeomGeoms() {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
 
@@ -405,7 +435,7 @@ void RenderableManager::AddGeomGeoms() {
   }
 }
 
-void RenderableManager::AddSiteGeoms() {
+void ModelRenderables::AddSiteGeoms() {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
 
@@ -434,29 +464,48 @@ void RenderableManager::AddSiteGeoms() {
   }
 }
 
-void RenderableManager::AddFlexGeoms() {
+void ModelRenderables::AddFlexGeoms() {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
 
   flexes_.reserve(model->nflex);
   flex_meshes_.reserve(model->nflex);
   for (int i = 0; i < model->nflex; ++i) {
-    mjrfRenderableParams params;
-    mjrf_defaultRenderableParams(&params);
-    auto renderable = CreateRenderable(ctx, params);
+    flex_meshes_.emplace_back(nullptr, nullptr);
 
     mjrfMaterial material = GetDefaultMaterial(mjOBJ_FLEX, i);
-    mjrf_setRenderableMaterial(renderable.get(), &material);
+
+    mjrfRenderableParams params;
+    mjrf_defaultRenderableParams(&params);
+
+    auto& parts = flexes_.emplace_back();
+
+    const int dim = model->flex_dim[i];
+    if (dim == 1) {
+      const float radius = model->flex_radius[i];
+      const float size[3] = {radius, radius, radius};
+      for (int j = 0; j < model->flex_edgenum[i]; ++j) {
+        auto renderable = CreateRenderable(ctx, params);
+        mjrf_setRenderableGeomMesh(renderable.get(), mjGEOM_CAPSULE, 4, 8, 1);
+        mjrf_setRenderableSize(renderable.get(), size);
+        mjrf_setRenderableMaterial(renderable.get(), &material);
+        parts.push_back(std::move(renderable));
+      }
+    } else {
+      auto renderable = CreateRenderable(ctx, params);
+      mjrf_setRenderableMaterial(renderable.get(), &material);
+      parts.push_back(std::move(renderable));
+    }
 
     if (vopts_.flexgroup[model->flex_group[i]]) {
-      mjrf_addRenderableToScene(scene_, renderable.get());
+      for (auto& renderable : parts) {
+        mjrf_addRenderableToScene(scene_, renderable.get());
+      }
     }
-    flexes_.emplace_back(std::move(renderable));
-    flex_meshes_.emplace_back(nullptr, nullptr);
   }
 }
 
-void RenderableManager::AddSkinGeoms() {
+void ModelRenderables::AddSkinGeoms() {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
 
@@ -478,7 +527,7 @@ void RenderableManager::AddSkinGeoms() {
   }
 }
 
-void RenderableManager::AddSliderCrankGeoms() {
+void ModelRenderables::AddSliderCrankGeoms() {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
   const int nstack = model->vis.quality.numstacks;
@@ -488,8 +537,6 @@ void RenderableManager::AddSliderCrankGeoms() {
   mjrfRenderableParams params;
   mjrf_defaultRenderableParams(&params);
 
-  sliders_.reserve(model->nu);
-  cranks_.reserve(model->nu);
   for (int i = 0; i < model->nu; i++) {
     if (model->actuator_trntype[i] != mjTRN_SLIDERCRANK) {
       continue;
@@ -500,18 +547,25 @@ void RenderableManager::AddSliderCrankGeoms() {
     mjrf_setRenderableGeomMesh(slider.get(), mjGEOM_CYLINDER, nstack, nslice,
                                nquad);
     mjrf_addRenderableToScene(scene_, slider.get());
-    sliders_.emplace_back(std::move(slider));
 
     auto crank = CreateRenderable(ctx, params);
     mjrf_setRenderableGeomMesh(crank.get(), mjGEOM_CAPSULE, nstack, nslice,
                                nquad);
     mjrf_addRenderableToScene(scene_, crank.get());
-    cranks_.emplace_back(std::move(crank));
+
+    std::array<UniquePtr<mjrfRenderable>, 2> pair{std::move(slider),
+                                                  std::move(crank)};
+    slider_cranks_.emplace(i, std::move(pair));
   }
 }
 
-void RenderableManager::UpdateSliderCranks(const mjData* data, int actuator_id,
-                                           int index) {
+void ModelRenderables::UpdateSliderCranks(const mjData* data, int actuator_id) {
+  auto it = slider_cranks_.find(actuator_id);
+  if (it == slider_cranks_.end()) {
+    mju_error("Slider/crank not found: %d", actuator_id);
+    return;
+  }
+
   const mjModel* model = model_objects_->GetModel();
   const float scale = model->stat.meansize;
   const float slider_width = scale * model->vis.scale.slidercrank;
@@ -539,8 +593,8 @@ void RenderableManager::UpdateSliderCranks(const mjData* data, int actuator_id,
 
   const float3 end = slider_pos + (axis * len);
 
-  mjrfRenderable* slider = sliders_[index].get();
-  mjrfRenderable* crank = cranks_[index].get();
+  mjrfRenderable* slider = it->second[0].get();
+  mjrfRenderable* crank = it->second[1].get();
   Connect(slider, slider_pos, end, slider_width);
   Connect(crank, end, crank_pos, crank_width);
 
@@ -555,7 +609,7 @@ void RenderableManager::UpdateSliderCranks(const mjData* data, int actuator_id,
   mjrf_setRenderableMaterial(crank, &material);
 }
 
-void RenderableManager::AppendSegmentToTendon(int tendon_id) {
+void ModelRenderables::AppendSegmentToTendon(int tendon_id) {
   mjrfContext* ctx = model_objects_->GetContext();
   const mjModel* model = model_objects_->GetModel();
 
@@ -576,14 +630,14 @@ void RenderableManager::AppendSegmentToTendon(int tendon_id) {
   segments.emplace_back(std::move(renderable));
 }
 
-void RenderableManager::RemoveSegmentFromTendon(int tendon_id) {
+void ModelRenderables::RemoveSegmentFromTendon(int tendon_id) {
   auto& segments = tendons_[tendon_id];
   mjrfRenderable* renderable = segments.back().get();
   mjrf_removeRenderableFromScene(scene_, renderable);
   segments.pop_back();
 }
 
-void RenderableManager::UpdateSpatialTendons(const mjData* data, int tendon_id) {
+void ModelRenderables::UpdateSpatialTendons(const mjData* data, int tendon_id) {
   const mjModel* model = model_objects_->GetModel();
 
   // Gather the points that define the tendon. We'll use a simple cache to avoid
@@ -642,7 +696,7 @@ void RenderableManager::UpdateSpatialTendons(const mjData* data, int tendon_id) 
   }
 }
 
-int RenderableManager::GetSegmentationId(mjtObj obj_type, int obj_index) {
+int ModelRenderables::GetSegmentationId(mjtObj obj_type, int obj_index) {
   const mjModel* model = model_objects_->GetModel();
 
   int id = 0;
@@ -680,8 +734,8 @@ int RenderableManager::GetSegmentationId(mjtObj obj_type, int obj_index) {
   return -1;
 }
 
-mjrfMaterial RenderableManager::GetDefaultMaterial(mjtObj obj_type,
-                                                   int obj_index) {
+mjrfMaterial ModelRenderables::GetDefaultMaterial(mjtObj obj_type,
+                                                  int obj_index) {
   const mjModel* model = model_objects_->GetModel();
 
   mjrfMaterial material;
@@ -869,7 +923,179 @@ mjrfMaterial RenderableManager::GetDefaultMaterial(mjtObj obj_type,
   return material;
 }
 
-void RenderableManager::SelectObject(mjtObj obj_type, int obj_index) {
+namespace {
+enum VisibilityOp { kNoop, kShow, kHide };
+}
+
+static void DetermineVisibilities(VisibilityOp* ops, mjtByte* vis_by_group,
+                                  mjtByte* vis_by_flag, int idx, bool visible) {
+  const bool prev_global_vis = vis_by_flag ? *vis_by_flag : true;
+  const bool curr_global_vis = idx == mjNGROUP ? visible : prev_global_vis;
+
+  for (int i = 0; i < mjNGROUP; ++i) {
+    const bool prev_group_vis = vis_by_group[i];
+    const bool curr_group_vis = idx == i ? visible : prev_group_vis;
+
+    const bool previously_visible = prev_global_vis && prev_group_vis;
+    const bool currently_visible = curr_global_vis && curr_group_vis;
+
+    if (previously_visible == currently_visible) {
+      ops[i] = kNoop;
+    } else if (currently_visible) {
+      ops[i] = kShow;
+    } else {
+      ops[i] = kHide;
+    }
+  }
+
+  if (idx < mjNGROUP) {
+    vis_by_group[idx] = visible;
+  } else if (vis_by_flag) {
+    *vis_by_flag = visible;
+  }
+}
+
+static void ApplyVisibility(VisibilityOp* ops, int group, mjrfScene* scene,
+                            std::span<UniquePtr<mjrfRenderable>> renderables) {
+  const VisibilityOp op = ops[group];
+  if (op == kShow) {
+    for (auto& renderable : renderables) {
+      mjrf_addRenderableToScene(scene, renderable.get());
+    }
+  } else if (op == kHide) {
+    for (auto& renderable : renderables) {
+      mjrf_removeRenderableFromScene(scene, renderable.get());
+    }
+  }
+}
+
+void ModelRenderables::SetVisibility(mjtObj obj_type, int idx, bool visible) {
+  const mjModel* model = model_objects_->GetModel();
+
+  VisibilityOp ops[mjNGROUP] = {kNoop};
+  switch (obj_type) {
+    case mjOBJ_GEOM:
+      DetermineVisibilities(ops, vopts_.geomgroup, nullptr, idx, visible);
+      for (int i = 0; i < model->ngeom; ++i) {
+        ApplyVisibility(ops, model->geom_group[i], scene_, {&geoms_[i], 1});
+      }
+      break;
+    case mjOBJ_SITE:
+      DetermineVisibilities(ops, vopts_.sitegroup, nullptr, idx, visible);
+      for (int i = 0; i < model->nsite; ++i) {
+        ApplyVisibility(ops, model->site_group[i], scene_, {&sites_[i], 1});
+      }
+      break;
+    case mjOBJ_FLEX:
+      DetermineVisibilities(ops, vopts_.flexgroup,
+                            &vopts_.flags[mjVIS_FLEXSKIN], idx, visible);
+      for (int i = 0; i < model->nflex; ++i) {
+        ApplyVisibility(ops, model->flex_group[i], scene_, flexes_[i]);
+      }
+      break;
+    case mjOBJ_SKIN:
+      DetermineVisibilities(ops, vopts_.skingroup, &vopts_.flags[mjVIS_SKIN],
+                            idx, visible);
+      for (int i = 0; i < model->nskin; ++i) {
+        ApplyVisibility(ops, model->skin_group[i], scene_, {&skins_[i], 1});
+      }
+      break;
+    case mjOBJ_TENDON:
+      DetermineVisibilities(ops, vopts_.tendongroup,
+                            &vopts_.flags[mjVIS_TENDON], idx, visible);
+      for (int i = 0; i < model->ntendon; ++i) {
+        ApplyVisibility(ops, model->tendon_group[i], scene_, tendons_[i]);
+      }
+      break;
+    case mjOBJ_ACTUATOR:
+      DetermineVisibilities(ops, vopts_.actuatorgroup,
+                            &vopts_.flags[mjVIS_ACTUATOR], idx, visible);
+      for (int i = 0; i < model->nu; ++i) {
+        auto it = slider_cranks_.find(i);
+        if (it == slider_cranks_.end()) {
+          continue;
+        }
+        ApplyVisibility(ops, model->actuator_group[i], scene_, it->second);
+      }
+      break;
+    default:
+      mju_error("Unsupported object type: %d", obj_type);
+      break;
+  }
+}
+
+void ModelRenderables::SetOptions(const mjvOption& opt) {
+  const mjModel* model = model_objects_->GetModel();
+
+  for (int i = 0; i < mjNGROUP; ++i) {
+    if (vopts_.geomgroup[i] != opt.geomgroup[i]) {
+      SetVisibility(mjOBJ_GEOM, i, opt.geomgroup[i]);
+    }
+    if (vopts_.sitegroup[i] != opt.sitegroup[i]) {
+      SetVisibility(mjOBJ_SITE, i, opt.sitegroup[i]);
+    }
+    if (vopts_.skingroup[i] != opt.skingroup[i]) {
+      SetVisibility(mjOBJ_SKIN, i, opt.skingroup[i]);
+    }
+    if (vopts_.flexgroup[i] != opt.flexgroup[i]) {
+      SetVisibility(mjOBJ_FLEX, i, opt.flexgroup[i]);
+    }
+    if (vopts_.tendongroup[i] != opt.tendongroup[i]) {
+      SetVisibility(mjOBJ_TENDON, i, opt.tendongroup[i]);
+    }
+    if (vopts_.actuatorgroup[i] != opt.actuatorgroup[i]) {
+      SetVisibility(mjOBJ_ACTUATOR, i, opt.actuatorgroup[i]);
+    }
+  }
+  if (vopts_.flags[mjVIS_SKIN] != opt.flags[mjVIS_SKIN]) {
+    SetVisibility(mjOBJ_SKIN, mjNGROUP, opt.flags[mjVIS_SKIN]);
+  }
+  if (vopts_.flags[mjVIS_FLEXSKIN] != opt.flags[mjVIS_FLEXSKIN]) {
+    SetVisibility(mjOBJ_FLEX, mjNGROUP, opt.flags[mjVIS_FLEXSKIN]);
+  }
+  if (vopts_.flags[mjVIS_TENDON] != opt.flags[mjVIS_TENDON]) {
+    SetVisibility(mjOBJ_TENDON, mjNGROUP, opt.flags[mjVIS_TENDON]);
+  }
+  if (vopts_.flags[mjVIS_ACTUATOR] != opt.flags[mjVIS_ACTUATOR]) {
+    SetVisibility(mjOBJ_ACTUATOR, mjNGROUP, opt.flags[mjVIS_ACTUATOR]);
+  }
+
+  if (vopts_.flags[mjVIS_CONVEXHULL] != opt.flags[mjVIS_CONVEXHULL]) {
+    for (int i = 0; i < model->ngeom; ++i) {
+      const mjtGeom geom_type = (mjtGeom)model->geom_type[i];
+      if (geom_type == mjGEOM_MESH || geom_type == mjGEOM_SDF) {
+        mjrfRenderable* renderable = geoms_[i].get();
+        const int mesh_id =
+            model->geom_dataid[i] * 2 + (opt.flags[mjVIS_CONVEXHULL] ? 1 : 0);
+        const mjrfMesh* mesh = model_objects_->GetMesh(mesh_id);
+        if (mesh) {
+          mjrf_setRenderableMesh(renderable, mesh, 0, 0);
+        }
+      }
+    }
+  }
+
+  if (vopts_.flags[mjVIS_TRANSPARENT] != opt.flags[mjVIS_TRANSPARENT]) {
+    float multiplier = model->vis.map.alpha;
+    if (!opt.flags[mjVIS_TRANSPARENT]) {
+      multiplier = 1.0f / multiplier;
+    }
+
+    for (int i = 0; i < model->ngeom; ++i) {
+      const int category = GetBodyCategory(model, model->geom_bodyid[i]);
+      if (category == mjCAT_DYNAMIC) {
+        mjrfMaterial material;
+        mjrf_getRenderableMaterial(geoms_[i].get(), &material);
+        material.color[3] *= multiplier;
+        mjrf_setRenderableMaterial(geoms_[i].get(), &material);
+      }
+    }
+  }
+
+  vopts_ = opt;
+}
+
+void ModelRenderables::MarkAsSelected(mjtObj obj_type, int obj_index) {
   if (obj_type != selected_obj_type_ || obj_index != selected_obj_index_) {
     mjrfMaterial material;
 
@@ -892,121 +1118,6 @@ void RenderableManager::SelectObject(mjtObj obj_type, int obj_index) {
       mjrf_setRenderableMaterial(curr_renderable, &material);
     }
   }
-}
-
-void RenderableManager::SetVisibility(mjtObj obj_type, bool visible,
-                                 std::optional<int> group) {
-  const mjModel* model = model_objects_->GetModel();
-
-  switch (obj_type) {
-    case mjOBJ_GEOM:
-      if (group.has_value()) {
-        if (vopts_.geomgroup[group.value()] == visible) {
-          return;
-        }
-        for (int i = 0; i < model->ngeom; ++i) {
-          if (model->geom_group[i] != group.value()) {
-            continue;
-          }
-          mjrfRenderable* renderable = geoms_[i].get();
-          if (visible) {
-            mjrf_addRenderableToScene(scene_, renderable);
-          } else {
-            mjrf_removeRenderableFromScene(scene_, renderable);
-          }
-        }
-      } else {
-        mju_error("Unsupported object type: %d", obj_type);
-      }
-      break;
-    case mjOBJ_SITE:
-      if (group.has_value()) {
-        if (vopts_.sitegroup[group.value()] == visible) {
-          return;
-        }
-        for (int i = 0; i < model->nsite; ++i) {
-          if (model->site_group[i] != group.value()) {
-            continue;
-          }
-          mjrfRenderable* renderable = sites_[i].get();
-          if (visible) {
-            mjrf_addRenderableToScene(scene_, renderable);
-          } else {
-            mjrf_removeRenderableFromScene(scene_, renderable);
-          }
-        }
-      } else {
-        mju_error("Unsupported object type: %d", obj_type);
-      }
-      break;
-    case mjOBJ_JOINT:
-      break;
-    case mjOBJ_TENDON:
-      break;
-    case mjOBJ_ACTUATOR:
-      break;
-    case mjOBJ_FLEX:
-      break;
-    case mjOBJ_SKIN:
-      break;
-    default:
-      mju_error("Unsupported object type: %d", obj_type);
-      break;
-  }
-}
-
-void RenderableManager::Apply(const mjvOption& vopts) {
-  const mjModel* model = model_objects_->GetModel();
-  for (int i = 0; i < mjNGROUP; ++i) {
-    SetVisibility(mjOBJ_GEOM, vopts.geomgroup[i], i);
-    SetVisibility(mjOBJ_SITE, vopts.sitegroup[i], i);
-    SetVisibility(mjOBJ_JOINT, vopts.jointgroup[i], i);
-    SetVisibility(mjOBJ_TENDON, vopts.tendongroup[i], i);
-    SetVisibility(mjOBJ_ACTUATOR, vopts.actuatorgroup[i], i);
-    SetVisibility(mjOBJ_FLEX, vopts.flexgroup[i], i);
-    SetVisibility(mjOBJ_SKIN, vopts.skingroup[i], i);
-  }
-  SetVisibility(mjOBJ_JOINT, vopts.flags[mjVIS_JOINT]);
-  SetVisibility(mjOBJ_TENDON, vopts.flags[mjVIS_TENDON]);
-  SetVisibility(mjOBJ_ACTUATOR, vopts.flags[mjVIS_ACTUATOR]);
-  SetVisibility(mjOBJ_SKIN, vopts.flags[mjVIS_SKIN]);
-  SetVisibility(mjOBJ_FLEX, vopts.flags[mjVIS_FLEXSKIN]);
-
-  // Swap geoms between convex and non-convex meshes based on flags.
-  if (vopts.flags[mjVIS_CONVEXHULL] != vopts_.flags[mjVIS_CONVEXHULL]) {
-    for (int i = 0; i < model->ngeom; ++i) {
-      const mjtGeom geom_type = (mjtGeom)model->geom_type[i];
-      if (geom_type == mjGEOM_MESH || geom_type == mjGEOM_SDF) {
-        mjrfRenderable* renderable = geoms_[i].get();
-        const int mesh_id =
-            model->geom_dataid[i] * 2 + (vopts.flags[mjVIS_CONVEXHULL] ? 1 : 0);
-        const mjrfMesh* mesh = model_objects_->GetMesh(mesh_id);
-        if (mesh) {
-          mjrf_setRenderableMesh(renderable, mesh, 0, 0);
-        }
-      }
-    }
-  }
-
-  // Adjust alpha of dynamic geoms based on transparent flag.
-  if (vopts.flags[mjVIS_TRANSPARENT] != vopts_.flags[mjVIS_TRANSPARENT]) {
-    float multiplier = model->vis.map.alpha;
-    if (!vopts.flags[mjVIS_TRANSPARENT]) {
-      multiplier = 1.0f / multiplier;
-    }
-
-    for (int i = 0; i < model->ngeom; ++i) {
-      const int category = GetBodyCategory(model, model->geom_bodyid[i]);
-      if (category == mjCAT_DYNAMIC) {
-        mjrfMaterial material;
-        mjrf_getRenderableMaterial(geoms_[i].get(), &material);
-        material.color[3] *= multiplier;
-        mjrf_setRenderableMaterial(geoms_[i].get(), &material);
-      }
-    }
-  }
-
-  vopts_ = vopts;
 }
 
 }  // namespace mujoco

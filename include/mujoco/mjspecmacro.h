@@ -182,6 +182,8 @@
     XVEC( mjtNum,         solimp,          mjNIMP ) \
     X   ( double,         margin,          1      ) \
     X   ( double,         gap,             1      ) \
+    XVEC( double,         surfacevel,      6      ) \
+    X   ( double,         adhesion,        1      ) \
     X   ( double,         mass,            1      ) \
     X   ( double,         density,         1      ) \
     X   ( mjtGeomInertia, typeinertia,     1      ) \
@@ -420,6 +422,7 @@
     XVEC( mjtNum,      solimp,         mjNIMP ) \
     X   ( double,      margin,         1      ) \
     X   ( double,      gap,            1      ) \
+    X   ( double,      adhesion,       1      ) \
     XVEC( double,      friction,       5      ) \
     X   ( mjString*,   info,           1      )
 
@@ -489,10 +492,11 @@
     X   ( mjtGain,       gaintype,      1         ) \
     XVEC( double,        gainprm,       mjNGAIN   ) \
     X   ( mjtBias,       biastype,      1         ) \
-    XVEC( double,        biasprm,       mjNGAIN   ) \
+    XVEC( double,        biasprm,       mjNBIAS   ) \
     X   ( mjtDyn,        dyntype,       1         ) \
     XVEC( double,        dynprm,        mjNDYN    ) \
     X   ( int,           actdim,        1         ) \
+    X   ( int,           ctrlspec,      1         ) \
     X   ( mjtBool,       actearly,      1         ) \
     X   ( mjtTrn,        trntype,       1         ) \
     XVEC( double,        gear,          6         ) \

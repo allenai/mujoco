@@ -241,6 +241,10 @@ static void setMaterial(const mjModel* m, mjvGeom* geom, int matid, const float*
   // set texture
   if (flags[mjVIS_TEXTURE] && matid >= 0) {
     geom->matid = matid;
+    geom->texid = m->mat_texid[matid*mjNTEXROLE + mjTEXROLE_RGB];
+    geom->texuniform = m->mat_texuniform[matid];
+    geom->texrepeat[0] = m->mat_texrepeat[2*matid];
+    geom->texrepeat[1] = m->mat_texrepeat[2*matid+1];
   }
 
   // scale alpha for dynamic geoms only
@@ -379,6 +383,10 @@ void mjv_initGeom(mjvGeom* geom, int type, const mjtNum* size,
   // set defaults that cannot be assigned via this function
   geom->dataid       = -1;
   geom->matid        = -1;
+  geom->texid        = -1;
+  geom->texuniform   = 0;
+  geom->texrepeat[0] = 0;
+  geom->texrepeat[1] = 0;
   geom->texcoord     = 0;
   geom->emission     = 0;
   geom->specular     = 0.5;
@@ -469,13 +477,23 @@ void mjv_cameraFrame(mjtNum headpos[3], mjtNum forward[3], mjtNum up[3], mjtNum 
         right[2] = 0;
       }
       if (headpos) {
-        mju_addScl3(headpos, cam->lookat, forward, -cam->distance);
+        if (cam->type == mjCAMERA_TRACKING && cam->trackbodyid >= 0) {
+          if (!d) {
+            mjERROR("data pointer is NULL");
+          }
+          mju_addScl3(headpos, d->subtree_com + 3*cam->trackbodyid, forward, -cam->distance);
+        } else {
+          mju_addScl3(headpos, cam->lookat, forward, -cam->distance);
+        }
       }
       break;
     }
 
     case mjCAMERA_FIXED: {
       const int cid = cam->fixedcamid;
+      if (!d) {
+        mjERROR("data pointer is NULL");
+      }
       const mjtNum* mat = d->cam_xmat + 9*cid;
       if (forward) {
         forward[0] = -mat[2];
@@ -656,7 +674,49 @@ static void addContactGeoms(const mjModel* m, mjData* d, const mjvOption* vopt, 
         mjSNPRINTF(thisgeom->label, "%s | %s", contactlabel[0], contactlabel[1]);
       }
 
+      float contactrgba[4];
+      f2f(contactrgba, thisgeom->rgba, 4);
       releaseGeom(&thisgeom, scn);
+
+      // surface velocity: one arrow per moving surface, pointing along the
+      // tangential material velocity at the contact point
+      const mjtNum kVelocityMap = 0.5;  // units of time: arrow length = velocity * kVelocityMap
+      for (int side=0; side < 2; side++) {
+        int g = con->geom[side];
+        if (g < 0) {
+          // TODO(team): support flex
+          continue;
+        }
+        const mjtNum* sv = m->geom_surfacevel + 6*g;
+        if (!sv[0] && !sv[1] && !sv[2] && !sv[3] && !sv[4] && !sv[5]) {
+          continue;
+        }
+
+        // material velocity at the contact point, world frame
+        mjtNum vw[3], ww[3];
+        mj_geomSurfaceVelocity(m, d, g, con->pos, vw, ww);
+
+        // project out the normal component: only the tangential part acts
+        mjtNum vn = mju_dot3(vw, con->frame);
+        mju_addToScl3(vw, con->frame, -vn);
+        if (mju_norm3(vw) < mjMINVAL) {
+          continue;
+        }
+
+        // anchor slightly off the contact point on the owning geom's side
+        mjtNum from[3], to[3];
+        mjtNum offset = (side ? 1 : -1) * 0.5 * m->vis.scale.forcewidth * scl;
+        mju_addScl3(from, con->pos, con->frame, offset);
+        mju_addScl3(to, from, vw, kVelocityMap);
+
+        thisgeom = acquireGeom(scn, i, category, objtype);
+        if (!thisgeom) {
+          return;
+        }
+        mjv_connector(thisgeom, mjGEOM_ARROW, m->vis.scale.forcewidth * scl, from, to);
+        f2f(thisgeom->rgba, contactrgba, 4);
+        releaseGeom(&thisgeom, scn);
+      }
     }
 
     // mat = contact frame rotation matrix (normal along x)

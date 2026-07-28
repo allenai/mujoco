@@ -347,6 +347,16 @@ Actuator bias types. These values are used in ``m->actuator_biastype``.
 .. mujoco-include:: mjtBias
 
 
+.. _mjtCtrlChart:
+
+mjtCtrlChart
+~~~~~~~~~~~~
+
+Orientation input charts of so3 actuators. These values are used in ``m->actuator_ctrlspec``.
+
+.. mujoco-include:: mjtCtrlChart
+
+
 .. _mjtObj:
 
 mjtObj
@@ -1442,12 +1452,22 @@ culling. Alternatively, the bounds can be computed at runtime (though there is a
 are provided (or calculated), then frustum culling will not be performed.
 
 
+.. _mjrfMeshConfig:
+
+mjrfMeshConfig
+~~~~~~~~~~~~~~~~~
+
+Parameters for creating a :ref:`mesh<mjrfMesh>`.
+
+.. mujoco-include:: mjrfMeshConfig
+
+
 .. _mjrfMeshData:
 
 mjrfMeshData
 ~~~~~~~~~~~~
 
-Binary data used for creating a :ref:`mesh<mjrfMesh>`.
+Binary data for a :ref:`mesh<mjrfMesh>`.
 
 .. mujoco-include:: mjrfMeshData
 

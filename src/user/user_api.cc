@@ -1313,13 +1313,37 @@ const char* mjs_setToIntVelocity(mjsActuator* actuator, double kp, double kv[1],
                                  double dampratio[1], double timeconst[1], double inheritrange) {
   mjs_setToPosition(actuator, kp, kv, dampratio, timeconst, inheritrange);
   actuator->dyntype = mjDYN_INTEGRATOR;
-  actuator->actlimited = mjLIMITED_TRUE;
 
   if (inheritrange > 0) {
     if (actuator->actrange[0] || actuator->actrange[1]) {
       return "actrange and inheritrange cannot both be defined";
     }
   }
+  return "";
+}
+
+
+
+// Set to orientation actuator.
+const char* mjs_setToOrientation(mjsActuator* actuator, double kp, double kv[1],
+                                 double dampratio[1], int ctrlspec) {
+  if (kv && dampratio) {
+    return "kv and dampratio cannot both be defined";
+  }
+  actuator->gainprm[0] = kp;
+  actuator->biasprm[1] = -kp;
+  if (kv) {
+    if (*kv < 0) return "kv cannot be negative";
+    actuator->biasprm[2] = -(*kv);
+  }
+  if (dampratio) {
+    if (*dampratio < 0) return "dampratio cannot be negative";
+    actuator->biasprm[2] = *dampratio;
+  }
+  actuator->ctrlspec = ctrlspec;
+  actuator->gaintype = mjGAIN_SO3;
+  actuator->biastype = mjBIAS_SO3;
+  actuator->dyntype = mjDYN_NONE;
   return "";
 }
 

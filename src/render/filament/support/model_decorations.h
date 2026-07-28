@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_DECORATOR_H_
-#define MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_DECORATOR_H_
+#ifndef MUJOCO_SRC_RENDER_FILAMENT_SUPPORT_MODEL_DECORATIONS_H_
+#define MUJOCO_SRC_RENDER_FILAMENT_SUPPORT_MODEL_DECORATIONS_H_
 
 #include <functional>
 #include <span>
@@ -23,7 +23,6 @@
 #include <mujoco/mjvisualize.h>
 #include <mujoco/mujoco.h>
 #include "render/filament/mjrfilament_cpp.h"
-#include "render/filament/support/model_objects.h"
 
 namespace mujoco {
 
@@ -31,11 +30,11 @@ namespace mujoco {
 //
 // Internally uses mjvScene to generate decorative mjvGeoms from which the
 // renderables are then created.
-class SceneDecorator {
+class ModelDecorations {
  public:
-  SceneDecorator(mjrfScene* scene, ModelObjects* model_objects,
-                 int num_geoms = 2000);
-  ~SceneDecorator();
+  ModelDecorations(mjrfContext* ctx, mjrfScene* scene, const mjModel* model,
+                   int num_geoms = 2000);
+  ~ModelDecorations();
 
   // Function for drawing text at a given position in clip space.
   using DrawTextAtFn = std::function<void(const char*, float, float, float)>;
@@ -46,17 +45,21 @@ class SceneDecorator {
               const mjrRect& viewport, DrawTextAtFn draw_text_at_fn = nullptr,
               std::span<const mjvGeom> extra_geoms = {});
 
-  SceneDecorator(const SceneDecorator&) = delete;
-  SceneDecorator& operator=(const SceneDecorator&) = delete;
+  // Removes all decorative renderables from the scene.
+  void Clear();
+
+  ModelDecorations(const ModelDecorations&) = delete;
+  ModelDecorations& operator=(const ModelDecorations&) = delete;
 
  private:
   mjrfContext* ctx_;
   mjrfScene* scene_;
-  ModelObjects* model_objects_;
+  const mjModel* model_;
   mjvScene mjv_scene_;
+  std::vector<UniquePtr<mjrfMesh>> meshes_;
   std::vector<UniquePtr<mjrfRenderable>> decorations_;
 };
 
 }  // namespace mujoco
 
-#endif  // MUJOCO_SRC_EXPERIMENTAL_FILAMENT_COMPAT_SCENE_DECORATOR_H_
+#endif  // MUJOCO_SRC_RENDER_FILAMENT_SUPPORT_MODEL_DECORATIONS_H_

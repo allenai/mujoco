@@ -34,6 +34,7 @@ typedef struct mjContact_ {        // result of collision detection functions
   mjtNum  solref[mjNREF];          // constraint solver reference, normal direction
   mjtNum  solreffriction[mjNREF];  // constraint solver reference, friction directions
   mjtNum  solimp[mjNIMP];          // constraint solver impedance
+  mjtNum  adhesion;                // adhesive force along the contact normal
 
   // internal storage used by solver
   mjtNum  mu;                      // friction of regularized cone, set by mj_makeConstraint
@@ -111,6 +112,10 @@ typedef struct mjData_ {
   int     nl;                // number of limit constraints
   int     nefc;              // number of constraints
   int     nJ;                // number of non-zeros in constraint Jacobian
+  int     efm_active;        // implicit effective metric M+K: 0 inactive, 1 active, 2 active + preconditioner exact
+  int     nefmK;             // number of non-zeros in effective-stiffness CSR
+  int     nefmdof;           // number of rows in effective-metric factor
+  int     nefmL;             // number of non-zeros in the effective-metric factor
   int     nY;                // number of non-zeros in constraint inverse inertia square root
   int     nA;                // number of non-zeros in constraint inverse inertia matrix
   int     nisland;           // number of detected constraint islands
@@ -200,6 +205,7 @@ typedef struct mjData_ {
   // computed by mj_fwdPosition/mj_flex
   mjtNum* flexvert_xpos;     // Cartesian flex vertex positions                  (nflexvert x 3)
   mjtNum* flexelem_aabb;     // flex element bounding boxes (center, size)       (nflexelem x 6)
+  mjtNum* flexelem_krot;     // corotated element stiffness (implicit only)      (nflexstiffness x 1)
   mjtNum* flexedge_J;        // flex edge Jacobian                               (nJfe x 1)
   mjtNum* flexedge_length;   // flex edge lengths                                (nflexedge x 1)
   mjtNum* flexvert_J;        // flex vertex Jacobian                             (nJfv x 2)
@@ -258,6 +264,7 @@ typedef struct mjData_ {
   mjtNum* qfrc_damper;       // passive damper force                             (nv x 1)
   mjtNum* qfrc_gravcomp;     // passive gravity compensation force               (nv x 1)
   mjtNum* qfrc_fluid;        // passive fluid force                              (nv x 1)
+  mjtNum* qfrc_adhesion;     // passive contact adhesion force                   (nv x 1)
   mjtNum* qfrc_passive;      // total passive force                              (nv x 1)
 
   // computed by mj_sensorVel/mj_subtreeVel if needed
@@ -368,6 +375,18 @@ typedef struct mjData_ {
   // computed by mj_fwdVelocity/mj_referenceConstraint
   mjtNum* efc_vel;           // velocity in constraint space: J*qvel             (nefc x 1)
   mjtNum* efc_aref;          // reference pseudo-acceleration                    (nefc x 1)
+
+  // computed by mj_fwdPosition/mj_invPosition when the implicit effective metric M+K is active
+  mjtNum* efm_c;             // smooth-force shift h*K*qvel                      (nv x 1)
+  int*    efm_K_rownnz;      // effective-stiffness CSR row nonzeros             (nv x 1)
+  int*    efm_K_rowadr;      // effective-stiffness CSR row addresses            (nv x 1)
+  int*    efm_K_colind;      // effective-stiffness CSR column indices           (nefmK x 1)
+  mjtNum* efm_K_val;         // effective-stiffness CSR values                   (nefmK x 1)
+  int*    efm_dofid;         // factor row -> dof address                        (nefmdof x 1)
+  int*    efm_L_rownnz;      // factor row nonzeros                              (nefmdof x 1)
+  int*    efm_L_rowadr;      // factor row addresses                             (nefmdof x 1)
+  int*    efm_L_colind;      // factor column indices                            (nefmL x 1)
+  mjtNum* efm_L;             // Cholesky factor of diag(M)+K, covered dofs       (nefmL x 1)
 
   //-------------------- arena-allocated: POSITION, VELOCITY, CONTROL/ACCELERATION dependent
 
@@ -584,6 +603,8 @@ typedef struct mjModel_ {
   mjtSize nflexelemdata;          // number of element vertex ids in all flexes
   mjtSize nflexstiffness;         // number of stiffness parameters in all flexes
   mjtSize nflexbending;           // number of bending parameters in all flexes
+  mjtSize nefm0dof;               // number of dofs covered by the constant metric factor
+  mjtSize nefm0L;                 // number of non-zeros in the constant metric factor
   mjtSize nflexelemedge;          // number of element edge ids in all flexes
   mjtSize nflexshelldata;         // number of shell fragment vertex ids in all flexes
   mjtSize nflexevpair;            // number of element-vertex pairs in all flexes
@@ -655,6 +676,12 @@ typedef struct mjModel_ {
   // buffer sizes
   mjtSize narena;                 // number of bytes in the mjData arena (inclusive of stack)
   mjtSize nbuffer;                // number of bytes in buffer
+
+  // ------------------------------- flags
+
+  mjtBool flg_gravcomp;           // whether any body has nonzero gravcomp
+  mjtBool flg_surfacevel;         // whether any geom has nonzero surfacevel
+  mjtBool flg_adhesion;           // whether any geom or pair has nonzero adhesion
 
   // ------------------------------- options and statistics
 
@@ -782,6 +809,8 @@ typedef struct mjModel_ {
   mjtNum*   geom_friction;        // friction for (slide, spin, roll)         (ngeom x 3)
   mjtNum*   geom_margin;          // geometric inflation for contact          (ngeom x 1)
   mjtNum*   geom_gap;             // additional contact detection buffer      (ngeom x 1)
+  mjtNum*   geom_surfacevel;      // surface velocity in local frame: lin,ang (ngeom x 6)
+  mjtNum*   geom_adhesion;        // adhesive force of contacts               (ngeom x 1)
   mjtNum*   geom_fluid;           // fluid interaction parameters             (ngeom x mjNFLUID)
   mjtNum*   geom_user;            // user data                                (ngeom x nuser_geom)
   float*    geom_rgba;            // rgba when material is omitted            (ngeom x 4)
@@ -902,6 +931,11 @@ typedef struct mjModel_ {
   mjtNum*   flex_size;            // vertex bounding box half sizes in qpos0  (nflex x 3)
   mjtNum*   flex_stiffness;       // finite element stiffness matrix          (nflexstiffness x 1)
   mjtNum*   flex_bending;         // bending stiffness                        (nflexbending x 1)
+  int*      efm0_dofid;           // constant metric factor row->dof address  (nefm0dof x 1)
+  int*      efm0_L_rownnz;        // constant metric factor row nonzeros      (nefm0dof x 1)
+  int*      efm0_L_rowadr;        // constant metric factor row addresses     (nefm0dof x 1)
+  int*      efm0_L_colind;        // constant metric factor column indices    (nefm0L x 1)
+  mjtNum*   efm0_L;               // factor of M + (dt^2+dt*d)*K_bend         (nefm0L x 1)
   mjtNum*   flex_damping;         // Rayleigh's damping coefficient           (nflex x 1)
   mjtNum*   flex_edgestiffness;   // edge stiffness                           (nflex x 1)
   mjtNum*   flex_edgedamping;     // edge damping                             (nflex x 1)
@@ -1020,6 +1054,7 @@ typedef struct mjModel_ {
   mjtNum*   pair_solimp;          // solver impedance: contact                (npair x mjNIMP)
   mjtNum*   pair_margin;          // geometric inflation for contact          (npair x 1)
   mjtNum*   pair_gap;             // additional contact detection buffer      (npair x 1)
+  mjtNum*   pair_adhesion;        // adhesive force of contacts               (npair x 1)
   mjtNum*   pair_friction;        // tangent1, 2, spin, roll1, 2              (npair x 5)
 
   // excluded body pairs for collision detection
@@ -1080,6 +1115,7 @@ typedef struct mjModel_ {
   int*      actuator_biastype;    // bias type (mjtBias)                      (nactuator x 1)
   int*      actuator_ctrladr;     // address of first control                 (nactuator x 1)
   int*      actuator_ctrlnum;     // number of controls                       (nactuator x 1)
+  int*      actuator_ctrlspec;    // input signature, scoped by gaintype      (nactuator x 1)
   int*      actuator_outadr;      // address of first force output            (nactuator x 1)
   int*      actuator_outnum;      // number of force outputs, from trntype    (nactuator x 1)
   int*      actuator_actadr;      // first activation address; -1: stateless  (nactuator x 1)
@@ -1101,11 +1137,11 @@ typedef struct mjModel_ {
   int*      actuator_group;       // group for visibility                     (nactuator x 1)
   mjtNum*   actuator_user;        // user data                                (nactuator x nuser_actuator)
   int*      actuator_plugin;      // plugin instance id; -1: not a plugin     (nactuator x 1)
+  mjtBool*  actuator_forcelimited;// is force limited                         (nactuator x 1)
+  mjtNum*   actuator_forcerange;  // range of forces                          (nactuator x 2)
   mjtBool*  actuator_ctrllimited; // is control limited                       (nu x 1)
   mjtNum*   actuator_ctrlrange;   // range of controls                        (nu x 2)
   mjtNum*   actuator_gear;        // scale length and transmitted force       (nout x 6)
-  mjtBool*  actuator_forcelimited;// is force limited                         (nout x 1)
-  mjtNum*   actuator_forcerange;  // range of forces                          (nout x 2)
   mjtNum*   actuator_acc0;        // acceleration from unit force in qpos0    (nout x 1)
   mjtNum*   actuator_length0;     // actuator length in qpos0                 (nout x 1)
   mjtNum*   actuator_lengthrange; // feasible actuator length range           (nout x 2)
@@ -1389,7 +1425,6 @@ typedef struct mjrRendererInfo_ {  // active renderer identity
   const char* backend;             // graphics backend: opengl, vulkan; empty if uninitialized
 } mjrRendererInfo;
 typedef struct mjrVertexAttribute_ {  // vertex attribute format specification
-  const void* bytes;                  // vertex data
   int usage;                          // position, normal, etc [mjrVertexAttributeUsage]
   int type;                           // float3, ubyte4, etc. [mjrVertexAttributeType]
 } mjrVertexAttribute;
@@ -1544,15 +1579,20 @@ typedef struct mjrfTextureData_ {
   mjrfCallback release;            // callback when data has finished uploading
   void* user_data;                 // user data for release callback
 } mjrfTextureData;
-typedef struct mjrfMeshData_ {
-  mjtSize num_vertices;         // number of vertices; all vertex attributes share this size
-  int num_attributes;           // number of attributes defined
+typedef struct mjrfMeshConfig_ {
+  mjtSize max_vertices;         // maximum number of vertices
+  mjtSize max_indices;          // maximum number of indices
+  int num_attributes;           // number of defined attributes
   mjrVertexAttribute attributes[mjMAX_VERTEX_ATTRIBUTES];  // per-vertex attribute information
   mjtBool interleaved;          // true if vertex attributes are interleaved
-  mjtSize num_indices;          // number of indices
-  const void* indices;          // indices data array
   int index_type;               // index data format (e.g. UINT16 or UINT32) [mjrIndexType]
   int primitive_type;           // index interpretation (e.g. TRIANGLES, etc.) [mjrMeshPrimitiveType]
+} mjrfMeshConfig;
+typedef struct mjrfMeshData_ {
+  mjtSize num_vertices;         // number of vertices
+  const void* vertices[mjMAX_VERTEX_ATTRIBUTES];  // per-vertex attribute data arrays
+  mjtSize num_indices;          // number of indices
+  const void* indices;          // indices data array
   mjtBool compute_bounds;       // if true, compute bounds from vertex positions
   float bounds_min[3];          // min/max bounds; assume unset if bounds_min == bounds_max
   float bounds_max[3];
@@ -1871,6 +1911,8 @@ typedef struct mjsGeom_ {          // geom specification
   mjtNum solimp[mjNIMP];           // solver impedance
   double margin;                   // margin for contact detection
   double gap;                      // additional contact detection buffer
+  double surfacevel[6];            // surface velocity in local frame: linear, angular
+  double adhesion;                 // adhesive force of contacts
 
   // inertia inference
   double mass;                     // used to compute density
@@ -2133,6 +2175,7 @@ typedef struct mjsPair_ {          // pair specification
   mjtNum solimp[mjNIMP];           // solver impedance
   double margin;                   // margin for contact detection
   double gap;                      // additional contact detection buffer
+  double adhesion;                 // adhesive force of contacts
   double friction[5];              // full contact friction
   mjString* info;                  // message appended to errors
 } mjsPair;
@@ -2197,12 +2240,13 @@ typedef struct mjsActuator_ {      // actuator specification
   mjtGain gaintype;                // gain type
   double gainprm[mjNGAIN];         // gain parameters
   mjtBias biastype;                // bias type
-  double biasprm[mjNGAIN];         // bias parameters
+  double biasprm[mjNBIAS];         // bias parameters
 
   // activation state
   mjtDyn dyntype;                  // dynamics type
   double dynprm[mjNDYN];           // dynamics parameters
   int actdim;                      // number of activation variables
+  int ctrlspec;                    // input signature, scoped by gaintype; 0: type default
   mjtBool actearly;                // apply next activations to qfrc
 
   // transmission
@@ -2461,6 +2505,7 @@ typedef enum mjtTrn {             // type of actuator transmission
   mjTRN_TENDON,                   // force on tendon
   mjTRN_SITE,                     // force on site
   mjTRN_BODY,                     // adhesion force on a body's geoms
+  mjTRN_SO3,                      // torque on a relative orientation (3 force outputs)
 
   mjTRN_UNDEFINED     = 1000      // undefined transmission type
 } mjtTrn;
@@ -2478,6 +2523,7 @@ typedef enum mjtGain {            // type of actuator gain
   mjGAIN_AFFINE,                  // const + kp*length + kv*velocity
   mjGAIN_MUSCLE,                  // muscle FLV curve computed by mju_muscleGain()
   mjGAIN_DCMOTOR,                 // DC motor gain: K or K/R
+  mjGAIN_SO3,                     // geodesic servo on an SO3 transmission: force = kp * log(error)
   mjGAIN_USER                     // user-defined gain type
 } mjtGain;
 typedef enum mjtBias {            // type of actuator bias
@@ -2485,8 +2531,13 @@ typedef enum mjtBias {            // type of actuator bias
   mjBIAS_AFFINE,                  // const + kp*length + kv*velocity
   mjBIAS_MUSCLE,                  // muscle passive force computed by mju_muscleBias()
   mjBIAS_DCMOTOR,                 // DC motor bias: back-EMF, cogging, LuGre friction
+  mjBIAS_SO3,                     // damping term of the SO3 geodesic servo
   mjBIAS_USER                     // user-defined bias type
 } mjtBias;
+typedef enum mjtCtrlChart {       // so3 input signature (actuator_ctrlspec): orientation chart
+  mjCHART_EXPMAP      = 1,        // exponential-map orientation target: 3 controls
+  mjCHART_QUAT        = 2         // quaternion orientation target: 4 controls
+} mjtCtrlChart;
 typedef enum mjtObj {             // type of MujoCo object
   mjOBJ_UNKNOWN       = 0,        // unknown object type
   mjOBJ_BODY,                     // body
@@ -3192,6 +3243,8 @@ typedef struct mjvGeom_ {         // abstract geom
   int      objid;                 // mujoco object id; -1 for decor
   int      category;              // visual category
   int      matid;                 // material id; -1: no textured material
+  int      texid;                 // texture id; -1: none
+  int      texuniform;            // uniform cube mapping
   int      texcoord;              // mesh or flex geom has texture coordinates
   int      segid;                 // segmentation id; -1: not shown
 
@@ -3206,6 +3259,7 @@ typedef struct mjvGeom_ {         // abstract geom
   float    specular;              // specular coef
   float    shininess;             // shininess coef
   float    reflectance;           // reflectance coef
+  float    texrepeat[2];          // texture repetition for 2d mapping
 
   char     label[100];            // text label
 
@@ -3372,9 +3426,11 @@ void mjrf_setTextureData(mjrfTexture* texture, const mjrfTextureData* data);
 int mjrf_getTextureWidth(const mjrfTexture* texture);
 int mjrf_getTextureHeight(const mjrfTexture* texture);
 int mjrf_getTextureSamplerType(const mjrfTexture* texture);
-void mjrf_defaultMeshData(mjrfMeshData* data);
-mjrfMesh* mjrf_createMesh(mjrfContext* ctx, const mjrfMeshData* data);
+void mjrf_defaultMeshConfig(mjrfMeshConfig* config);
+mjrfMesh* mjrf_createMesh(mjrfContext* ctx, const mjrfMeshConfig* config);
 void mjrf_destroyMesh(mjrfMesh* mesh);
+void mjrf_defaultMeshData(mjrfMeshData* data);
+void mjrf_setMeshData(mjrfMesh* mesh, const mjrfMeshData* data);
 void mjrf_defaultSceneParams(mjrfSceneParams* params);
 mjrfScene* mjrf_createScene(mjrfContext* ctx, const mjrfSceneParams* params);
 void mjrf_destroyScene(mjrfScene* scene);
@@ -3459,6 +3515,7 @@ mjtSize mj_sizeModel(const mjModel* m);
 mjData* mj_makeData(const mjModel* m);
 mjData* mj_copyData(mjData* dest, const mjModel* m, const mjData* src);
 mjData* mjv_copyData(mjData* dest, const mjModel* m, const mjData* src);
+void mj_resetCtrl(const mjModel* m, mjData* d);
 void mj_resetData(const mjModel* m, mjData* d);
 void mj_resetDataDebug(const mjModel* m, mjData* d, unsigned char debug_value);
 void mj_resetDataKeyframe(const mjModel* m, mjData* d, int key);
@@ -3570,6 +3627,7 @@ void mj_jacDot(const mjModel* m, const mjData* d, mjtNum* jacp, mjtNum* jacr,
 void mj_angmomMat(const mjModel* m, mjData* d, mjtNum* mat, int body);
 int mj_name2id(const mjModel* m, int type, const char* name);
 const char* mj_id2name(const mjModel* m, int type, int id);
+const char* mj_actuatorInputName(const mjModel* m, int id, int input);
 void mj_fullM(const mjModel* m, const mjData* d, mjtNum* dst);
 void mj_mulM(const mjModel* m, const mjData* d, mjtNum* res, const mjtNum* vec);
 void mj_mulM2(const mjModel* m, const mjData* d, mjtNum* res, const mjtNum* vec);
@@ -3929,6 +3987,8 @@ const char* mjs_setToPosition(mjsActuator* actuator, double kp, double kv[1],
 const char* mjs_setToIntVelocity(mjsActuator* actuator, double kp, double kv[1],
                                  double dampratio[1], double timeconst[1], double inheritrange);
 const char* mjs_setToVelocity(mjsActuator* actuator, double kv);
+const char* mjs_setToOrientation(mjsActuator* actuator, double kp, double kv[1],
+                                 double dampratio[1], int ctrlspec);
 const char* mjs_setToDamper(mjsActuator* actuator, double kv);
 const char* mjs_setToCylinder(mjsActuator* actuator, double timeconst,
                               double bias, double area, double diameter);

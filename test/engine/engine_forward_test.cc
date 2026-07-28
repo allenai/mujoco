@@ -16,7 +16,6 @@
 
 #include "src/engine/engine_forward.h"
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -68,7 +67,6 @@ using ::testing::Pointwise;
 
 using ::testing::_;
 using ::testing::Gt;
-using ::testing::HasSubstr;
 using ::testing::Ne;
 using ::testing::NotNull;
 
@@ -467,7 +465,8 @@ TEST_F(ImplicitIntegratorTest, EnergyConservation) {
 // free-body local solve: implicitfast matches implicit exactly for a standalone
 // free body
 TEST_F(ImplicitIntegratorTest, FreeBodyMatchesImplicit) {
-  static constexpr char xml[] = R"(
+  // damped free body in vacuum
+  static constexpr char xml1[] = R"(
   <mujoco>
     <option timestep="0.005"/>
     <worldbody>
@@ -479,36 +478,54 @@ TEST_F(ImplicitIntegratorTest, FreeBodyMatchesImplicit) {
   </mujoco>
   )";
 
-  char error[1024];
-  MjModelPtr model = LoadModelFromString(xml, error, sizeof(error));
-  ASSERT_THAT(model.get(), NotNull()) << error;
-  MjDataPtr d1 = MakeData(model);
-  MjDataPtr d2 = MakeData(model);
-  mjModel* m = model.get();
+  // free body in fluid with wind, ellipsoid fluid model (asymmetric lift
+  // derivatives)
+  static constexpr char xml2[] = R"(
+  <mujoco>
+    <option timestep="0.005" density="1.2" viscosity="0.002" wind="1 2 3"/>
+    <worldbody>
+      <body pos="0.1 -0.2 0.5" euler="20 -30 40">
+        <joint type="free"/>
+        <geom type="ellipsoid" size=".1 .2 .3" mass="2" pos=".04 -.02 .03"
+              fluidshape="ellipsoid"/>
+      </body>
+    </worldbody>
+  </mujoco>
+  )";
 
-  // tumbling initial velocity
-  mj_resetData(m, d1.get());
-  d1->qvel[3] = 5;
-  d1->qvel[4] = -3;
-  d1->qvel[5] = 2;
+  int xml_idx = 1;
+  for (auto xml : {xml1, xml2}) {
+    SCOPED_TRACE(testing::Message() << "XML case " << xml_idx++);
+    char error[1024];
+    MjModelPtr model = LoadModelFromString(xml, error, sizeof(error));
+    ASSERT_THAT(model.get(), NotNull()) << error;
+    MjDataPtr d1 = MakeData(model);
+    MjDataPtr d2 = MakeData(model);
+    mjModel* m = model.get();
 
-  // step both integrators from identical states, re-synchronizing each step
-  // to avoid chaotic divergence of tumbling trajectories
-  int nstate = mj_stateSize(m, mjSTATE_INTEGRATION);
-  std::vector<mjtNum> state(nstate);
-  mjtNum tol = MjTol(1e-14, 1e-6);
-  for (int i = 0; i < 50; i++) {
-    mj_getState(m, d1.get(), state.data(), mjSTATE_INTEGRATION);
-    mj_setState(m, d2.get(), state.data(), mjSTATE_INTEGRATION);
+    // tumbling initial velocity
+    mj_resetData(m, d1.get());
+    d1->qvel[3] = 5;
+    d1->qvel[4] = -3;
+    d1->qvel[5] = 2;
 
-    m->opt.integrator = mjINT_IMPLICITFAST;
-    mj_step(m, d1.get());
-    m->opt.integrator = mjINT_IMPLICIT;
-    mj_step(m, d2.get());
+    // step both integrators from identical states, re-synchronizing each step
+    // to avoid chaotic divergence of tumbling trajectories
+    int nstate = mj_stateSize(m, mjSTATE_INTEGRATION);
+    std::vector<mjtNum> state(nstate);
+    for (int i = 0; i < 50; i++) {
+      mj_getState(m, d1.get(), state.data(), mjSTATE_INTEGRATION);
+      mj_setState(m, d2.get(), state.data(), mjSTATE_INTEGRATION);
 
-    for (int k = 0; k < m->nv; k++) {
-      EXPECT_NEAR(d1->qvel[k], d2->qvel[k], tol)
-          << "step " << i << " dof " << k;
+      m->opt.integrator = mjINT_IMPLICITFAST;
+      mj_step(m, d1.get());
+      m->opt.integrator = mjINT_IMPLICIT;
+      mj_step(m, d2.get());
+
+      for (int k = 0; k < m->nv; k++) {
+        EXPECT_NEAR(d1->qvel[k], d2->qvel[k], MjTol(1e-14, 1e-6))
+            << "step " << i << " dof " << k;
+      }
     }
   }
 }
@@ -2933,7 +2950,7 @@ TEST_F(ForwardTest, FlexTrilinearInstability) {
 TEST_F(ForwardTest, FlexDampingRigidMotion) {
   constexpr char xml[] = R"(
   <mujoco>
-      <option gravity="0 0 0" timestep="0.01" integrator="implicitfast"/>
+      <option gravity="0 0 0" timestep="0.01" integrator="implicitfast" solver="CG"/>
       <worldbody>
           <flexcomp name="flex" type="grid" count="3 3 3" spacing="0.1 0.1 0.1"
                     pos="0 0 0" euler="45 45 45" radius="0.01" dim="3" mass="1" dof="trilinear">
@@ -2984,7 +3001,7 @@ TEST_F(ForwardTest, FlexDampingRigidMotion) {
 TEST_F(ForwardTest, FlexParentCoupling) {
   static const char* const kXml = R"(
   <mujoco>
-    <option integrator="implicit" timestep="0.01"/>
+    <option integrator="implicit" timestep="0.01" solver="CG"/>
     <worldbody>
       <body name="parent" pos="0 0 0">
         <freejoint/>
@@ -3034,14 +3051,17 @@ TEST_F(ForwardTest, FlexParentCoupling) {
     if (diff > max_diff) max_diff = diff;
   }
 
-  EXPECT_LT(max_diff, MjTol(2e-5, 1.5e-2))
+  // tolerance rebaselined 2e-5 -> 5e-5 for the in-solver implicit flex treatment: implicit
+  // and explicit flex damping legitimately differ at O(h*damping*K/M) in this comparison, and
+  // the in-solver form lands at ~3e-5 where the old post-hoc operator landed just under 2e-5
+  EXPECT_LT(max_diff, MjTol(5e-5, 1.5e-2))
       << "Implicit integrator should match Euler at small timestep";
 }
 
 TEST_F(ForwardTest, TrilinearPinnedParentWithFreejoint) {
   static constexpr char xml[] = R"(
   <mujoco>
-  <option integrator="implicitfast"/>
+  <option integrator="implicitfast" solver="CG"/>
   <worldbody>
     <body>
       <joint type="free"/>
@@ -3601,7 +3621,7 @@ TEST_F(ImplicitIntegratorTest, FlexContactEnergy) {
 TEST_F(ImplicitIntegratorTest, BendingDampingDecaysEnergy) {
   static constexpr char xml[] = R"(
   <mujoco>
-    <option gravity="0 0 0" timestep="0.001" integrator="implicitfast">
+    <option gravity="0 0 0" timestep="0.001" integrator="implicitfast" solver="CG">
       <flag energy="enable"/>
     </option>
     <worldbody>
@@ -3661,7 +3681,7 @@ TEST_F(ImplicitIntegratorTest, BendingDampingDecaysEnergy) {
 TEST_F(ImplicitIntegratorTest, InterpStretchEnergy) {
   static constexpr char xml[] = R"(
   <mujoco>
-    <option gravity="0 0 0" timestep="0.001" integrator="implicitfast">
+    <option gravity="0 0 0" timestep="0.001" integrator="implicitfast" solver="CG">
       <flag energy="enable"/>
     </option>
     <worldbody>
@@ -3707,4 +3727,46 @@ TEST_F(ImplicitIntegratorTest, InterpStretchEnergy) {
 }
 
 }  // namespace
+// with the implicit effective metric active, inverse dynamics must recover the applied force
+// (zero here): the forward solve is (M+B)*qacc = qfrc_smooth + c + J'*f and the inverse adds
+// the same B*qacc - c terms. This is the fwd/inv consistency fence for the flex-CG dispatch.
+TEST_F(ForwardTest, GatedFlexInverseConsistency) {
+  static const char* const kXml = R"(
+  <mujoco>
+    <option solver="CG" integrator="implicitfast" tolerance="1e-14"/>
+    <worldbody>
+      <flexcomp name="cloth" type="grid" count="6 6 1" spacing="0.1 0.1 0.1"
+                radius=".01" dim="2" mass="1" pos="0 0 1">
+        <contact selfcollide="none" contype="0" conaffinity="0"/>
+        <elasticity young="1e4" poisson="0.3" thickness="0.01"
+                    elastic2d="both" damping="0.5"/>
+      </flexcomp>
+    </worldbody>
+  </mujoco>
+  )";
+
+  char error[1024];
+  MjModelPtr model = LoadModelFromString(kXml, error, sizeof(error));
+  ASSERT_THAT(model.get(), NotNull()) << error;
+  MjDataPtr data = MakeData(model);
+  int nv = model->nv;
+
+  // deform and settle a few steps under gravity
+  for (int i=0; i < nv; i++) {
+    data->qvel[i] = 0.1 * (mju_Halton(i, 3) - 0.5);
+  }
+  for (int step=0; step < 50; step++) {
+    mj_step(model.get(), data.get());
+  }
+
+  // forward then inverse at the same state
+  mj_forward(model.get(), data.get());
+  mj_inverse(model.get(), data.get());
+
+  // no applied forces: the inverse must return ~zero, at the scale of the passive forces
+  mjtNum scale = 1 + mju_norm(data->qfrc_passive, nv);
+  EXPECT_LT(mju_norm(data->qfrc_inverse, nv), 1e-6 * scale);
+}
+
+
 }  // namespace mujoco

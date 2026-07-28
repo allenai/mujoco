@@ -27,6 +27,7 @@ from mujoco.experimental.studio import ux
 from mujoco.experimental.studio import viewer_protocol
 
 from mujoco.experimental.dear_imgui import dear_imgui as imgui
+from mujoco.experimental.implot import implot
 
 
 class NativeViewer(viewer_protocol.Viewer):
@@ -85,6 +86,9 @@ class NativeViewer(viewer_protocol.Viewer):
     ctx = self._viewer.GetImGuiContext()
     imgui.SetCurrentContext(ctx)
     ux.set_imgui_context(ctx)
+    ux.set_implot_context(self._viewer.GetImPlotContext())
+    implot.set_imgui_context(ctx)
+    implot.set_implot_context(self._viewer.GetImPlotContext())
 
     # Dispatch lifecycle event so handlers can cache the viewer reference.
     self.dispatch(viewer_protocol.ViewerInitEvent(viewer=self))
@@ -95,11 +99,12 @@ class NativeViewer(viewer_protocol.Viewer):
       self._viewer.InitRenderer(model)
       self._renderer_model_id = id(model)
 
-  def is_running(self) -> bool:
-    """Poll for a new frame; returns ``False`` when the window is closed."""
-    if super().is_running() and not self._viewer.NewFrame():
-      self.close()
-    return super().is_running()
+  def prepare_next_frame(self) -> bool:
+    """Advances to the next frame; returns False when the window is closed."""
+    if not self._viewer.NewFrame():
+      self._is_running = False
+      return False
+    return True
 
   def sync(self) -> None:
     """Render the scene and present it to the window."""
